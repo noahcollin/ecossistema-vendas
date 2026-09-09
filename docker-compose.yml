@@ -14,6 +14,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - UAZAPI_URL=${UAZAPI_URL}
       - UAZAPI_TOKEN=${UAZAPI_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
     depends_on:
       db:
         condition: service_healthy
