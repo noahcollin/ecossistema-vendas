@@ -1,0 +1,8 @@
+# Arquivos de ambiente
+.env
+
+# Pastas de contexto / documentação restrita
+Contexto/
+
+# Outros
+.DS_Store
