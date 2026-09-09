@@ -14,6 +14,24 @@ class LeadResponse(BaseModel):
     telefone: str
     status: LeadStatus
 
-    # Isso permite que o Pydantic entenda diretamente o formato que vem do Banco de Dados
     class Config:
         from_attributes = True
+
+# ----------------- ESQUEMAS DA UAZAPI -----------------
+
+class UazapiChat(BaseModel):
+    name: Optional[str] = None
+    phone: str
+
+class UazapiMessage(BaseModel):
+    text: Optional[str] = None
+    senderName: Optional[str] = None
+
+class UazapiPayload(BaseModel):
+    instanceName: str
+    chat: Optional[UazapiChat] = None
+    message: Optional[UazapiMessage] = None
+    
+    # Isso permite que o Pydantic ignore campos do Uazapi que não listamos aqui, evitando erros
+    class Config:
+        extra = "allow"

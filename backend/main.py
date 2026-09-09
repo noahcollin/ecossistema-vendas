@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import text
@@ -75,5 +75,61 @@ async def listar_leads(db: AsyncSession = Depends(get_db)):
     leads = resultado.scalars().all()
     
     return leads
+
+@app.delete("/leads/{lead_id}", status_code=204)
+async def deletar_lead(lead_id: int, db: AsyncSession = Depends(get_db)):
+    """Deleta um cliente (Lead) do banco de dados pelo ID (útil para testes)"""
+    
+    # Busca o lead pelo ID
+    query = select(models.Lead).where(models.Lead.id == lead_id)
+    resultado = await db.execute(query)
+    lead = resultado.scalars().first()
+    
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+        
+    # Deleta e salva
+    await db.delete(lead)
+    await db.commit()
+    print(f"🗑️ Lead apagado com sucesso (ID: {lead_id})")
+    
+    return
+
+# ----------------- WEBHOOK (WHATSAPP) -----------------
+
+@app.post("/webhook/uazapi")
+async def webhook_uazapi(payload: schemas.UazapiPayload, db: AsyncSession = Depends(get_db)):
+    """Webhook Inteligente: Cria um lead automaticamente se não existir"""
+    try:
+        # Verifica se recebemos as informações necessárias (telefone)
+        if not payload.chat or not payload.chat.phone:
+            print("Webhook recebido sem telefone, ignorando.")
+            return {"status": "ignorado", "motivo": "sem telefone"}
+            
+        telefone = payload.chat.phone
+        # Tenta pegar o nome de chat.name, se não tiver, tenta de message.senderName, se não tiver, "Desconhecido"
+        nome_contato = payload.chat.name or (payload.message.senderName if payload.message else "Desconhecido")
+        
+        # 1. Verifica se o Lead já existe no banco
+        query = select(models.Lead).where(models.Lead.telefone == telefone)
+        resultado = await db.execute(query)
+        lead_existente = resultado.scalars().first()
+        
+        if lead_existente:
+            print(f"\n[UAZAPI] 🗨️ Mensagem recebida de Lead já existente: {nome_contato} ({telefone})")
+        else:
+            # 2. Se não existe, cria a ficha dele automaticamente!
+            novo_lead = models.Lead(
+                nome=nome_contato,
+                telefone=telefone
+            )
+            db.add(novo_lead)
+            await db.commit()
+            print(f"\n[UAZAPI] 🔥 NOVO LEAD CADASTRADO AUTOMATICAMENTE: {nome_contato} ({telefone})\n")
+            
+        return {"status": "processado"}
+    except Exception as e:
+        print(f"Erro ao processar webhook da Uazapi: {e}")
+        return {"status": "erro", "detalhe": str(e)}
 
 
