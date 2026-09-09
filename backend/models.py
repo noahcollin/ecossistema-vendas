@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Enum, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 import enum
-from database import Base
+from core.database import Base
 
 # Definindo as fases do Funil de Vendas baseadas na Máquina de Estados do PDF
 class LeadStatus(str, enum.Enum):
