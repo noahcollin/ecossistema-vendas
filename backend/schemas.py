@@ -35,3 +35,7 @@ class UazapiPayload(BaseModel):
     # Isso permite que o Pydantic ignore campos do Uazapi que não listamos aqui, evitando erros
     class Config:
         extra = "allow"
+
+class TesteEnvio(BaseModel):
+    telefone: str
+    texto: str

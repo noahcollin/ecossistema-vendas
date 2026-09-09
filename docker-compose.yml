@@ -12,6 +12,8 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/ecossistema_vendas
       - REDIS_URL=redis://redis:6379/0
+      - UAZAPI_URL=${UAZAPI_URL}
+      - UAZAPI_TOKEN=${UAZAPI_TOKEN}
     depends_on:
       db:
         condition: service_healthy

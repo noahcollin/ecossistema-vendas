@@ -95,7 +95,31 @@ async def deletar_lead(lead_id: int, db: AsyncSession = Depends(get_db)):
     
     return
 
-# ----------------- WEBHOOK (WHATSAPP) -----------------
+@app.get("/leads/{lead_id}/interacoes")
+async def listar_interacoes(lead_id: int, db: AsyncSession = Depends(get_db)):
+    """Lista o histórico de conversas (Interações) de um cliente"""
+    query = select(models.Interacao).where(models.Interacao.lead_id == lead_id).order_by(models.Interacao.criado_em)
+    resultado = await db.execute(query)
+    interacoes = resultado.scalars().all()
+    
+    # Retorna o histórico formatado
+    return [{
+        "id": i.id, 
+        "origem": i.origem.value, 
+        "texto": i.texto, 
+        "data": i.criado_em.isoformat()
+    } for i in interacoes]
+
+# ----------------- UAZAPI (TESTE DE ENVIO) -----------------
+import uazapi
+
+@app.post("/teste-envio")
+async def teste_enviar_mensagem(dados: schemas.TesteEnvio):
+    """Rota temporária de teste para disparar uma mensagem ativamente (A Boca)"""
+    resultado = await uazapi.enviar_mensagem(dados.telefone, dados.texto)
+    return resultado
+
+# ----------------- WEBHOOK (WHATSAPP RECEPÇÃO) -----------------
 
 @app.post("/webhook/uazapi")
 async def webhook_uazapi(payload: schemas.UazapiPayload, db: AsyncSession = Depends(get_db)):
@@ -125,7 +149,22 @@ async def webhook_uazapi(payload: schemas.UazapiPayload, db: AsyncSession = Depe
             )
             db.add(novo_lead)
             await db.commit()
-            print(f"\n[UAZAPI] 🔥 NOVO LEAD CADASTRADO AUTOMATICAMENTE: {nome_contato} ({telefone})\n")
+            await db.refresh(novo_lead) # Pega o ID gerado pelo banco
+            lead_existente = novo_lead
+            print(f"\n[UAZAPI] 🔥 NOVO LEAD CADASTRADO AUTOMATICAMENTE: {nome_contato} ({telefone})")
+
+        # 3. Agora que temos o cliente garantido, vamos salvar o "post-it" (a mensagem dele)
+        # Extrai o texto da mensagem (caso tenha enviado algum texto, senao deixa um aviso)
+        texto_mensagem = payload.message.text if payload.message and payload.message.text else "[Mensagem sem texto ou Mídia]"
+        
+        nova_interacao = models.Interacao(
+            lead_id=lead_existente.id, # O "grampo" que conversamos!
+            origem=models.InteracaoOrigem.CLIENTE, # Fui o cliente que mandou
+            texto=texto_mensagem
+        )
+        db.add(nova_interacao)
+        await db.commit()
+        print(f"[UAZAPI] 📝 Mensagem salva no histórico do {nome_contato}: '{texto_mensagem}'\n")
             
         return {"status": "processado"}
     except Exception as e:
