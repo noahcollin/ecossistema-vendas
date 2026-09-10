@@ -11,8 +11,11 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL não configurada no arquivo .env")
 
+# Permite ligar logs detalhados de SQL apenas se explicitamente configurado no .env
+SQL_ECHO = os.getenv("SQL_ECHO", "false").lower() == "true"
+
 # Cria o 'Motor' de conexão com o PostgreSQL de forma assíncrona (super rápida)
-engine = create_async_engine(DATABASE_URL, echo=True)
+engine = create_async_engine(DATABASE_URL, echo=SQL_ECHO)
 
 # Cria a fábrica de 'Sessões' (cada sessão é uma conversa separada com o banco)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)

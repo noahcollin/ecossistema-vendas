@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Any
 from models import LeadStatus
 
 # Esquema para quando o cliente nos envia dados (não exigimos ID, é automático)
@@ -24,11 +24,19 @@ class UazapiChat(BaseModel):
     phone: str
 
 class UazapiMessage(BaseModel):
+    id: Optional[str] = None
+    messageid: Optional[str] = None
     text: Optional[str] = None
     senderName: Optional[str] = None
+    messageType: Optional[str] = None
+    fileURL: Optional[str] = None
+    content: Optional[Any] = None
+
+    class Config:
+        extra = "allow"
 
 class UazapiPayload(BaseModel):
-    instanceName: str
+    instanceName: Optional[str] = None
     chat: Optional[UazapiChat] = None
     message: Optional[UazapiMessage] = None
     

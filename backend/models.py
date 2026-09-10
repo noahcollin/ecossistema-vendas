@@ -26,8 +26,8 @@ class Lead(Base):
     status = Column(Enum(LeadStatus), default=LeadStatus.NOVO)
     criado_em = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     
-    # O "grampo" que liga o Lead aos seus post-its (Interações)
-    interacoes = relationship("Interacao", back_populates="lead")
+    # O "grampo" que liga o Lead aos seus post-its (Interações com exclusão em cascata)
+    interacoes = relationship("Interacao", back_populates="lead", cascade="all, delete-orphan")
 
 # Definindo quem enviou a mensagem
 class InteracaoOrigem(str, enum.Enum):
