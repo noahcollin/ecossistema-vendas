@@ -3,12 +3,10 @@ Processador especializado em GIFs animados, memes de reação e vídeos.
 Prioriza o frame JPEGThumbnail nativo da mensagem (Zero Latência) antes de tentar download.
 """
 
-from openai import AsyncOpenAI
 from core.logger import logger
+from core.openai_client import openai_client
 from services.media.prompts import PROMPT_GIF
 from services.uazapi_service import baixar_arquivo
-
-openai_client = AsyncOpenAI()
 
 async def descrever_gif_com_visao(url_ou_base64: str, mimetype: str = "image/jpeg") -> str:
     """

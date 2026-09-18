@@ -1,0 +1,30 @@
+{
+  "historia_do_lead": "Dr. Eduardo é o diretor da Clínica Bem Estar em João Pessoa, que busca informações sobre a viabilidade de instalar placas solares em seu prédio, visando reduzir a conta de energia de R$ 5.200 por mês. O diálogo evoluiu com a apresentação de uma proposta, mas ele acabou optando por uma concorrente que ofereceu um valor inferior e condições de pagamento mais favoráveis.",
+  "o_que_agradou": [
+    "Rapidez na resposta e na elaboração da proposta",
+    "Clareza nas informações sobre economia e viabilidade",
+    "Atenção e educação no atendimento durante todo o processo"
+  ],
+  "pontos_de_atrito_e_queixas": [
+    "Teto de investimento estipulado pelo conselho de sócios",
+    "Diferença significativa de preço em relação à concorrente",
+    "Condições de pagamento mais atrativas oferecidas pela concorrência"
+  ],
+  "resultado_final": {
+    "desfecho": "PERDIDO",
+    "motivo_raiz": "Concorrência",
+    "concorrente_citado": "Sol Forte Engenharia",
+    "diferencial_decisivo": "Condições de pagamento em 24x sem juros oferecidas pela concorrente"
+  },
+  "estrategia_utilizada": "Venda consultiva focada em viabilidade e ajuste de proposta",
+  "nota_atendimento_ia": 9.0,
+  "feedback_para_o_negocio": "Considerar a flexibilidade nas condições de pagamento e a possibilidade de ajustes na proposta para atender melhor ao teto de investimento do cliente.",
+  "proximo_passo": {
+    "acao_sugerida": "Revisitar o cliente com uma nova proposta ajustada",
+    "quando_retomar": "Em 3 meses",
+    "dica_de_ouro": "Enfatizar a qualidade e o suporte técnico, além de explorar opções de financiamento mais flexíveis."
+  },
+  "potencial_reativacao": "MEDIO",
+  "tipo_entrada": "INBOUND",
+  "origem_canal": "GOOGLE_SEARCH"
+}

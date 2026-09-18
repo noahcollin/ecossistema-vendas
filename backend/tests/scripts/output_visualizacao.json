@@ -1,0 +1,145 @@
+{
+  "cenario_1_ganho": {
+    "cliente": "Marcos Silveira",
+    "telefone": "+5583991110001",
+    "dialogo_whatsapp": [
+      {
+        "de": "Cliente",
+        "texto": "Boa tarde! Sou o Marcos, proprietário de uma churrascaria em João Pessoa. Minha conta de luz veio R$ 4.200 esse mês. Quero ver se energia solar realmente compensa."
+      },
+      {
+        "de": "Seu Zé (IA)",
+        "texto": "Boa tarde, Marcos! Entendo bem a sua preocupação com o valor da conta de luz. A energia solar pode ser uma excelente solução para reduzir esses custos. Você já teve algum contato anterior com energia solar, ou gostaria que eu explicasse como funciona e os benefícios específicos para o seu caso?"
+      },
+      {
+        "de": "Cliente",
+        "texto": "Excelente explicação, Seu Zé! Tirou minhas dúvidas e a economia é gigante. Quero fechar sim, pode preparar o contrato!"
+      },
+      {
+        "de": "Seu Zé (IA)",
+        "texto": "Fico muito feliz em saber disso, Marcos! Vamos avançar, então. Para preparar o contrato, vou precisar de alguns dados: nome completo, CPF ou CNPJ, endereço da instalação e um e-mail para envio do documento. Pode me passar por aqui mesmo?"
+      }
+    ],
+    "quatro_dimensoes_lead": {
+      "etapa_funil": "FECHAMENTO",
+      "desfecho": "GANHO",
+      "controle": "PILOTO_IA",
+      "temperatura": "QUENTE",
+      "valor_estimado": 4200.0,
+      "tags": [
+        "churrascaria",
+        "energia_solar",
+        "custo_alto"
+      ]
+    },
+    "ficha_do_lead": {
+      "resumo_perfil": "Marcos Silveira, proprietário de uma churrascaria em João Pessoa, busca soluções de energia solar para reduzir sua conta de luz, que foi de R$ 4.200 este mês. Ele demonstrou interesse em fechar um contrato após entender os benefícios da energia solar.",
+      "dados_qualificacao": {
+        "cidade": "João Pessoa",
+        "detalhes": "Proprietário de uma churrascaria",
+        "segmento": "Churrascaria",
+        "tipo_imovel": "Comercial",
+        "dados_cadastrais": null,
+        "objecoes_detectadas": [],
+        "consumo_estimado_reais": 4200.0
+      }
+    },
+    "dossie_comercial_executivo": {
+      "o_que_agradou": [
+        "Excelente explicação sobre os benefícios da energia solar.",
+        "Rapidez na resposta e clareza nas informações.",
+        "A economia potencial foi um ponto decisivo para o fechamento."
+      ],
+      "proximo_passo": {
+        "dica_de_ouro": "Reforçar os benefícios da energia solar e a economia esperada durante a conversa.",
+        "acao_sugerida": "Preparar e enviar o contrato para o cliente.",
+        "quando_retomar": "Imediatamente após a preparação do contrato."
+      },
+      "resultado_final": {
+        "desfecho": "GANHO",
+        "motivo_raiz": null,
+        "concorrente_citado": null,
+        "diferencial_decisivo": "Clareza na explicação dos benefícios e economia gerada pela energia solar."
+      },
+      "historia_do_lead": "Marcos Silveira é o proprietário de uma churrascaria em João Pessoa que busca soluções de energia solar para reduzir sua conta de luz, que foi de R$ 4.200 este mês. Ele demonstrou interesse em fechar um contrato após entender os benefícios da energia solar e a economia que poderia obter.",
+      "nota_atendimento_ia": 9.5,
+      "estrategia_utilizada": "Venda consultiva focada em economia e benefícios da energia solar.",
+      "potencial_reativacao": "BAIXO",
+      "feedback_para_o_negocio": "Manter a abordagem consultiva e a clareza nas informações, pois isso foi fundamental para o fechamento.",
+      "pontos_de_atrito_e_queixas": []
+    }
+  },
+  "cenario_2_perdido": {
+    "cliente": "Carla Fernandes",
+    "telefone": "+5583991110002",
+    "motivo_perda": "Preço",
+    "quatro_dimensoes_lead": {
+      "etapa_funil": "NEGOCIACAO",
+      "desfecho": "PERDIDO",
+      "controle": "PILOTO_IA",
+      "temperatura": "FRIO"
+    },
+    "dossie_comercial_executivo": {
+      "o_que_agradou": [
+        "Rapidez no atendimento",
+        "Clareza nas informações fornecidas"
+      ],
+      "proximo_passo": {
+        "dica_de_ouro": "Enfatizar a flexibilidade de pagamento e possíveis descontos em futuras interações.",
+        "acao_sugerida": "Reavaliar a proposta de preço e condições de pagamento para reabordar a cliente.",
+        "quando_retomar": "Em 30 dias."
+      },
+      "resultado_final": {
+        "desfecho": "PERDIDO",
+        "motivo_raiz": "Preço",
+        "concorrente_citado": "SolarMais",
+        "diferencial_decisivo": "Desconto de 20% e parcelamento em 36x sem juros"
+      },
+      "historia_do_lead": "Carla Fernandes é uma cliente que buscava soluções para sua academia, mas enfrentou dificuldades relacionadas ao preço. O diálogo evoluiu até o ponto em que ela decidiu fechar com a concorrente SolarMais, que ofereceu um desconto significativo e condições de pagamento mais favoráveis.",
+      "nota_atendimento_ia": 8.0,
+      "estrategia_utilizada": "Venda consultiva focada em entender as necessidades do cliente",
+      "potencial_reativacao": "MEDIO",
+      "feedback_para_o_negocio": "Considerar a revisão das políticas de preços e opções de parcelamento para se tornar mais competitivo no mercado.",
+      "pontos_de_atrito_e_queixas": [
+        "Preço considerado alto em comparação com a concorrência",
+        "Falta de opções de parcelamento atrativas"
+      ]
+    }
+  },
+  "cenario_3_transbordo": {
+    "cliente": "Dr. Arnaldo Castro",
+    "telefone": "+5583991110003",
+    "quatro_dimensoes_lead": {
+      "etapa_funil": "NEGOCIACAO",
+      "desfecho": "EM_ANDAMENTO",
+      "controle": "TRANSBORDO_SOLICITADO",
+      "temperatura": "QUENTE"
+    },
+    "dossie_comercial_executivo": {
+      "o_que_agradou": [
+        "Rapidez na resposta inicial da IA.",
+        "Clareza nas informações sobre o BNDES."
+      ],
+      "proximo_passo": {
+        "dica_de_ouro": "Reforce a importância do financiamento e como ele pode beneficiar a clínica do Dr. Arnaldo.",
+        "acao_sugerida": "Encaminhar Dr. Arnaldo para um consultor humano imediatamente.",
+        "quando_retomar": null
+      },
+      "resultado_final": {
+        "desfecho": "EM_ANDAMENTO",
+        "motivo_raiz": null,
+        "concorrente_citado": null,
+        "diferencial_decisivo": "Acesso a um consultor humano para esclarecer dúvidas específicas sobre o financiamento."
+      },
+      "historia_do_lead": "Dr. Arnaldo Castro é um médico que busca financiamento através do BNDES para sua clínica. Ele expressou urgência em falar com um consultor humano para discutir o enquadramento da linha de crédito. O diálogo evoluiu para uma solicitação de transbordo para atendimento humano, indicando sua necessidade de suporte mais personalizado.",
+      "nota_atendimento_ia": 7.5,
+      "estrategia_utilizada": "Venda consultiva focada em financiamento.",
+      "potencial_reativacao": "ALTO",
+      "feedback_para_o_negocio": "A empresa deve garantir que a transição para um consultor humano seja rápida e eficiente, para atender à urgência do cliente.",
+      "pontos_de_atrito_e_queixas": [
+        "Desejo de atendimento humano imediato.",
+        "Insegurança sobre o enquadramento da linha de crédito."
+      ]
+    }
+  }
+}

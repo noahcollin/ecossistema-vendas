@@ -1,42 +1,48 @@
-import os
 import time
 from redis import asyncio as aioredis
 from core.logger import logger
-
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+from core.config import settings
 
 # Pool de conexão assíncrona global para o Redis
-redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
+redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
 
-async def adicionar_mensagem(telefone: str, texto: str) -> float:
+# Script Lua atômico: garante que nenhuma mensagem seja perdida entre LRANGE e DEL
+LUA_OBTER_E_LIMPAR = """
+local msgs = redis.call('LRANGE', KEYS[1], 0, -1)
+redis.call('DEL', KEYS[1])
+redis.call('DEL', KEYS[2])
+return msgs
+"""
+
+async def adicionar_mensagem(telefone: str, texto: str) -> str:
     """
     Enfileira o fragmento de mensagem no buffer do lead no Redis
-    e atualiza o carimbo de data/hora (timestamp) da última mensagem.
-    Retorna o timestamp gerado.
+    e atualiza o carimbo de data/hora (timestamp) atômico em nanossegundos.
+    Retorna o token/carimbo único gerado.
     """
     try:
-        agora = time.time()
+        token_tempo = str(time.time_ns())
         chave_buffer = f"buffer:{telefone}"
         chave_tempo = f"last_msg_time:{telefone}"
         
         # Operação assíncrona atômica no Redis
         async with redis_client.pipeline(transaction=True) as pipe:
             pipe.rpush(chave_buffer, texto)
-            pipe.set(chave_tempo, str(agora))
+            pipe.set(chave_tempo, token_tempo)
             # Define expiração de 10 minutos para evitar sujeira se o sistema reiniciar
             pipe.expire(chave_buffer, 600)
             pipe.expire(chave_tempo, 600)
             await pipe.execute()
             
-        logger.info(f"[BUFFER] 📥 Mensagem de {telefone} enfileirada no Redis. Carimbo: {agora:.3f}")
-        return agora
+        logger.info(f"[BUFFER] 📥 Mensagem de {telefone} enfileirada no Redis. Token: {token_tempo}")
+        return token_tempo
     except Exception as e:
         logger.error(f"[BUFFER ERRO] Falha ao adicionar mensagem no Redis: {e}")
-        return time.time()
+        return str(time.time_ns())
 
-async def verificar_se_e_ultima(telefone: str, timestamp_disparado: float) -> bool:
+async def verificar_se_e_ultima(telefone: str, token_disparado: str | float) -> bool:
     """
-    Verifica se o timestamp gravado no Redis ainda coincide com o timestamp
+    Verifica se o token gravado no Redis ainda coincide com o token
     desta tarefa. Se outra mensagem tiver chegado no intervalo, retorna False.
     """
     try:
@@ -46,30 +52,42 @@ async def verificar_se_e_ultima(telefone: str, timestamp_disparado: float) -> bo
         if not ultimo_tempo:
             return False
             
-        # Converte para float e compara
-        delta = abs(float(ultimo_tempo) - timestamp_disparado)
-        # Se a diferença for minúscula (< 0.0001s), é a mesma execução
-        return delta < 0.0001
+        token_str = str(token_disparado)
+        if ultimo_tempo == token_str:
+            return True
+            
+        # Fallback de compatibilidade para floats legados
+        try:
+            return abs(float(ultimo_tempo) - float(token_disparado)) < 0.0001
+        except (ValueError, TypeError):
+            return False
     except Exception as e:
         logger.error(f"[BUFFER ERRO] Falha ao verificar timestamp no Redis: {e}")
         return False
 
 async def obter_e_limpar_buffer(telefone: str) -> list[str]:
     """
-    Recupera todas as mensagens acumuladas no buffer do lead e limpa as chaves.
+    Recupera todas as mensagens acumuladas no buffer do lead e limpa as chaves
+    de forma estritamente ATÔMICA via script Lua, eliminando race conditions.
     """
     try:
         chave_buffer = f"buffer:{telefone}"
         chave_tempo = f"last_msg_time:{telefone}"
         
-        mensagens = await redis_client.lrange(chave_buffer, 0, -1)
+        # Execução atômica no Redis (sem risco de perda de mensagens entre leitura e exclusão)
+        mensagens = await redis_client.eval(LUA_OBTER_E_LIMPAR, 2, chave_buffer, chave_tempo)
         
-        # Limpa o buffer e o carimbo
-        await redis_client.delete(chave_buffer)
-        await redis_client.delete(chave_tempo)
-        
-        logger.info(f"[BUFFER] 📦 {len(mensagens)} mensagens consolidadas e retiradas do buffer de {telefone}")
+        logger.info(f"[BUFFER] 📦 {len(mensagens or [])} mensagens consolidadas e retiradas atomicamente de {telefone}")
         return mensagens or []
     except Exception as e:
-        logger.error(f"[BUFFER ERRO] Falha ao recuperar/limpar buffer no Redis: {e}")
-        return []
+        logger.error(f"[BUFFER ERRO] Falha ao recuperar/limpar buffer atomicamente no Redis: {e}")
+        # Fallback defensivo não atômico se eval falhar
+        try:
+            chave_buffer = f"buffer:{telefone}"
+            chave_tempo = f"last_msg_time:{telefone}"
+            msgs = await redis_client.lrange(chave_buffer, 0, -1)
+            await redis_client.delete(chave_buffer, chave_tempo)
+            return msgs or []
+        except Exception as inner_e:
+            logger.error(f"[BUFFER ERRO CRÍTICO] Fallback no Redis falhou: {inner_e}")
+            return []

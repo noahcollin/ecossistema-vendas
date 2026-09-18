@@ -6,11 +6,10 @@ com aproveitamento da transcrição nativa da Uazapi quando disponível.
 
 import io
 import base64
-from openai import AsyncOpenAI
 from core.logger import logger
+from core.openai_client import openai_client
+from core.config import settings
 from services.uazapi_service import baixar_arquivo
-
-openai_client = AsyncOpenAI()
 
 async def transcrever_audio_com_whisper(base64_audio: str) -> str:
     """
@@ -24,7 +23,7 @@ async def transcrever_audio_com_whisper(base64_audio: str) -> str:
         buffer_audio.name = "audio.mp3"
         
         transcricao = await openai_client.audio.transcriptions.create(
-            model="whisper-1",
+            model=settings.MODEL_WHISPER,
             file=buffer_audio,
             language="pt"
         )
@@ -39,22 +38,30 @@ async def transcrever_audio_com_whisper(base64_audio: str) -> str:
 async def processar_audio(message, content_dict: dict) -> str:
     """
     Coordena o download e a transcrição da mensagem de voz/áudio.
+    Aproveita transcrição ou áudio embutido no payload (Zero Latência) antes de baixar via API.
     """
     msg_id = message.messageid or message.id or ""
     logger.info(f"[MEDIA] 🎙️ Áudio detectado (tipo: {message.messageType}, ID: {msg_id})")
     
+    # 0º: Checa se a transcrição nativa já veio no payload da mensagem
+    if isinstance(content_dict, dict):
+        transcricao_payload = content_dict.get("transcription") or content_dict.get("text")
+        if transcricao_payload and transcricao_payload.strip():
+            logger.info(f"[MEDIA WHISPER] ⚡ Transcrição nativa encontrada no payload: '{transcricao_payload.strip()}'")
+            return f"[ÁUDIO/MENSAGEM DE VOZ DO CLIENTE: '{transcricao_payload.strip()}']"
+            
     dados_arquivo = {}
     if msg_id:
         dados_arquivo = await baixar_arquivo(msg_id, generate_mp3=True)
         
-    # 1º: Checa se a Uazapi já enviou transcrição embutida
+    # 1º: Checa se a Uazapi enviou transcrição na resposta do download
     transcricao_uazapi = dados_arquivo.get("transcription")
     if transcricao_uazapi and transcricao_uazapi.strip():
         logger.info(f"[MEDIA WHISPER] Transcrição nativa da Uazapi aproveitada: '{transcricao_uazapi}'")
         return f"[ÁUDIO/MENSAGEM DE VOZ DO CLIENTE: '{transcricao_uazapi.strip()}']"
         
     # 2º: Transcreve via OpenAI Whisper
-    base64_data = dados_arquivo.get("base64Data")
+    base64_data = dados_arquivo.get("base64Data") or (content_dict.get("base64Data") if isinstance(content_dict, dict) else None)
     if base64_data:
         transcricao_whisper = await transcrever_audio_com_whisper(base64_data)
         if transcricao_whisper:

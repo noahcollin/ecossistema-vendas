@@ -7,12 +7,10 @@ comercial via gpt-4o-mini para documentos extensos.
 import io
 import base64
 import pypdf
-from openai import AsyncOpenAI
 from core.logger import logger
+from core.openai_client import openai_client
 from services.media.prompts import PROMPT_RESUMO_PDF
 from services.uazapi_service import baixar_arquivo
-
-openai_client = AsyncOpenAI()
 
 async def extrair_e_resumir_pdf(base64_pdf: str) -> str:
     """
@@ -67,21 +65,35 @@ async def extrair_e_resumir_pdf(base64_pdf: str) -> str:
 async def processar_documento(message, content_dict: dict, legenda: str) -> str:
     """
     Coordena o download e o processamento de documentos PDF.
+    Aproveita metadados (nome do arquivo) e base64 embutidos no payload antes de baixar via API.
     """
     msg_id = message.messageid or message.id or ""
     logger.info(f"[MEDIA] 📄 Documento detectado (tipo: {message.messageType}, ID: {msg_id})")
     
-    dados_arquivo = {}
-    if msg_id:
-        dados_arquivo = await baixar_arquivo(msg_id)
+    # 1. Extrai o nome do arquivo a partir de content_dict ou da mensagem
+    nome_arquivo = ""
+    base64_payload = None
+    if isinstance(content_dict, dict):
+        nome_arquivo = content_dict.get("fileName") or content_dict.get("title") or ""
+        base64_payload = content_dict.get("base64Data") or content_dict.get("base64")
         
-    base64_data = dados_arquivo.get("base64Data")
+    if not nome_arquivo:
+        nome_arquivo = getattr(message, "fileName", "") or ""
+        
+    rotulo_doc = f" ({nome_arquivo})" if nome_arquivo else ""
+    
+    # 2. Obtém o base64 (embutido ou baixado via Uazapi)
+    base64_data = base64_payload
+    if not base64_data and msg_id:
+        dados_arquivo = await baixar_arquivo(msg_id)
+        base64_data = dados_arquivo.get("base64Data")
+        
     if base64_data:
         conteudo_pdf = await extrair_e_resumir_pdf(base64_data)
         if legenda:
-            return f"[DOCUMENTO PDF DO CLIENTE: {conteudo_pdf}. Legenda: '{legenda}']"
-        return f"[DOCUMENTO PDF DO CLIENTE: {conteudo_pdf}]"
+            return f"[DOCUMENTO PDF{rotulo_doc} DO CLIENTE: {conteudo_pdf}. Legenda: '{legenda}']"
+        return f"[DOCUMENTO PDF{rotulo_doc} DO CLIENTE: {conteudo_pdf}]"
         
     if legenda:
-        return f"[DOCUMENTO PDF ENVIADO PELO CLIENTE com a legenda: '{legenda}']"
-    return "[DOCUMENTO PDF ENVIADO PELO CLIENTE]"
+        return f"[DOCUMENTO PDF{rotulo_doc} ENVIADO PELO CLIENTE com a legenda: '{legenda}']"
+    return f"[DOCUMENTO PDF{rotulo_doc} ENVIADO PELO CLIENTE]"
