@@ -22,7 +22,7 @@ import httpx
 from core.config import settings
 from core.database import engine
 import models
-from services.agents import gerar_resposta_vendedor, PROMPT_BASE_VENDEDOR, PROMPT_SISTEMA_ANALISTA
+from agents import gerar_resposta_vendedor, PROMPT_BASE_VENDEDOR, PROMPT_SISTEMA_ANALISTA
 from api.routers.webhook import SEMAFORO_CONCORRENCIA_IA, router
 from main import app
 
@@ -108,7 +108,7 @@ async def test_2_finops_dynamic_model_routing():
             mock_resp.choices = [MagicMock(message=MagicMock(content="Resposta teste mock"))]
             return mock_resp
 
-        with patch("services.agents.sales_closer_agent.openai_client.chat.completions.create", side_effect=mock_create):
+        with patch("agents.sales_closer_agent.openai_client.chat.completions.create", side_effect=mock_create):
             
             # Etapa 1: NOVO_CONTATO -> Deve escolher MODEL_CLOSER_FAST (gpt-4o-mini)
             await gerar_resposta_vendedor(

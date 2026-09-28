@@ -20,7 +20,8 @@ backend/tests/
 │   ├── test_inbound_outbound_channel.py            # [Suíte 5] Inbound vs Outbound e canais de captação
 │   ├── test_deep_resilience_and_edge_cases.py      # [Suíte 6] Thundering Herd, Unicode e Lead Revival
 │   ├── test_battery_comprehensive.py               # [Suíte 7] Ciclo comercial completo E2E e API REST
-│   └── test_security_scalability_finops.py         # [Suíte 8] Auth de Webhook, Pool 75 e FinOps Fast/Adv
+│   ├── test_security_scalability_finops.py         # [Suíte 8] Auth de Webhook, Pool 75 e FinOps Fast/Adv
+│   └── test_cadencia_followup.py                   # [Suíte 9] Motor de Cadência e Follow-Up Ativo (RF11 & RF12)
 │
 ├── e2e/                           # 🎭 Simulações de Ponta a Ponta de Longa Duração
 │   └── test_long_conversation_memory_and_finops.py # Simulação real de 7 turnos com recall de memória

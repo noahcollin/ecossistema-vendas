@@ -1,0 +1,126 @@
+"""initial_schema_consolidation
+
+Revision ID: 224624f292f1
+Revises: 
+Create Date: 2026-09-28 19:46:15.576800
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = '224624f292f1'
+down_revision: Union[str, Sequence[str], None] = None
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    # Garante a criação dos tipos Enum antes da conversão de colunas
+    op.execute("DO $$ BEGIN CREATE TYPE tipoentradalead AS ENUM ('INBOUND', 'OUTBOUND'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+    op.execute("DO $$ BEGIN CREATE TYPE etapafunil AS ENUM ('NOVO_CONTATO', 'QUALIFICACAO', 'NEGOCIACAO', 'FECHAMENTO'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+    op.execute("DO $$ BEGIN CREATE TYPE desfecholead AS ENUM ('EM_ANDAMENTO', 'GANHO', 'PERDIDO', 'CONGELADO_CADENCIA'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+    op.execute("DO $$ BEGIN CREATE TYPE controleatendimento AS ENUM ('PILOTO_IA', 'TRANSBORDO_SOLICITADO', 'HUMANO_ASSUMIU'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+    op.execute("DO $$ BEGIN CREATE TYPE temperaturalead AS ENUM ('FRIO', 'MORNO', 'QUENTE'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+
+    # Remove defaults antigos antes de alterar os tipos das colunas para os novos Enums
+    op.execute("ALTER TABLE leads ALTER COLUMN tipo_entrada DROP DEFAULT;")
+    op.execute("ALTER TABLE leads ALTER COLUMN etapa_funil DROP DEFAULT;")
+    op.execute("ALTER TABLE leads ALTER COLUMN desfecho DROP DEFAULT;")
+    op.execute("ALTER TABLE leads ALTER COLUMN controle DROP DEFAULT;")
+    op.execute("ALTER TABLE leads ALTER COLUMN temperatura DROP DEFAULT;")
+
+    op.create_index('ix_interacoes_lead_criado', 'interacoes', ['lead_id', 'criado_em'], unique=False)
+    op.alter_column('leads', 'tipo_entrada',
+               existing_type=sa.VARCHAR(length=50),
+               type_=sa.Enum('INBOUND', 'OUTBOUND', name='tipoentradalead'),
+               existing_nullable=True,
+               postgresql_using="tipo_entrada::tipoentradalead")
+    op.alter_column('leads', 'etapa_funil',
+               existing_type=sa.VARCHAR(length=50),
+               type_=sa.Enum('NOVO_CONTATO', 'QUALIFICACAO', 'NEGOCIACAO', 'FECHAMENTO', name='etapafunil'),
+               existing_nullable=True,
+               postgresql_using="etapa_funil::etapafunil")
+    op.alter_column('leads', 'desfecho',
+               existing_type=sa.VARCHAR(length=50),
+               type_=sa.Enum('EM_ANDAMENTO', 'GANHO', 'PERDIDO', 'CONGELADO_CADENCIA', name='desfecholead'),
+               existing_nullable=True,
+               postgresql_using="desfecho::desfecholead")
+    op.alter_column('leads', 'controle',
+               existing_type=sa.VARCHAR(length=50),
+               type_=sa.Enum('PILOTO_IA', 'TRANSBORDO_SOLICITADO', 'HUMANO_ASSUMIU', name='controleatendimento'),
+               existing_nullable=True,
+               postgresql_using="controle::controleatendimento")
+    op.alter_column('leads', 'temperatura',
+               existing_type=sa.VARCHAR(length=20),
+               type_=sa.Enum('FRIO', 'MORNO', 'QUENTE', name='temperaturalead'),
+               existing_nullable=True,
+               postgresql_using="temperatura::temperaturalead")
+
+    # Restaura os defaults tipados para os enums
+    op.execute("ALTER TABLE leads ALTER COLUMN tipo_entrada SET DEFAULT 'INBOUND'::tipoentradalead;")
+    op.execute("ALTER TABLE leads ALTER COLUMN etapa_funil SET DEFAULT 'NOVO_CONTATO'::etapafunil;")
+    op.execute("ALTER TABLE leads ALTER COLUMN desfecho SET DEFAULT 'EM_ANDAMENTO'::desfecholead;")
+    op.execute("ALTER TABLE leads ALTER COLUMN controle SET DEFAULT 'PILOTO_IA'::controleatendimento;")
+    op.execute("ALTER TABLE leads ALTER COLUMN temperatura SET DEFAULT 'FRIO'::temperaturalead;")
+    op.alter_column('leads', 'resumo_perfil',
+               existing_type=sa.TEXT(),
+               type_=sa.String(),
+               existing_nullable=True)
+    op.create_index(op.f('ix_leads_controle'), 'leads', ['controle'], unique=False)
+    op.create_index(op.f('ix_leads_desfecho'), 'leads', ['desfecho'], unique=False)
+    op.create_index(op.f('ix_leads_etapa_funil'), 'leads', ['etapa_funil'], unique=False)
+    op.create_index(op.f('ix_leads_motivo_perda'), 'leads', ['motivo_perda'], unique=False)
+    op.create_index(op.f('ix_leads_opt_out'), 'leads', ['opt_out'], unique=False)
+    op.create_index(op.f('ix_leads_origem_canal'), 'leads', ['origem_canal'], unique=False)
+    op.create_index(op.f('ix_leads_temperatura'), 'leads', ['temperatura'], unique=False)
+    op.create_index(op.f('ix_leads_tipo_entrada'), 'leads', ['tipo_entrada'], unique=False)
+    # ### end Alembic commands ###
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_index(op.f('ix_leads_tipo_entrada'), table_name='leads')
+    op.drop_index(op.f('ix_leads_temperatura'), table_name='leads')
+    op.drop_index(op.f('ix_leads_origem_canal'), table_name='leads')
+    op.drop_index(op.f('ix_leads_opt_out'), table_name='leads')
+    op.drop_index(op.f('ix_leads_motivo_perda'), table_name='leads')
+    op.drop_index(op.f('ix_leads_etapa_funil'), table_name='leads')
+    op.drop_index(op.f('ix_leads_desfecho'), table_name='leads')
+    op.drop_index(op.f('ix_leads_controle'), table_name='leads')
+    op.alter_column('leads', 'resumo_perfil',
+               existing_type=sa.String(),
+               type_=sa.TEXT(),
+               existing_nullable=True)
+    op.alter_column('leads', 'temperatura',
+               existing_type=sa.Enum('FRIO', 'MORNO', 'QUENTE', name='temperaturalead'),
+               type_=sa.VARCHAR(length=20),
+               existing_nullable=True,
+               existing_server_default=sa.text("'FRIO'::character varying"))
+    op.alter_column('leads', 'controle',
+               existing_type=sa.Enum('PILOTO_IA', 'TRANSBORDO_SOLICITADO', 'HUMANO_ASSUMIU', name='controleatendimento'),
+               type_=sa.VARCHAR(length=50),
+               existing_nullable=True,
+               existing_server_default=sa.text("'PILOTO_IA'::character varying"))
+    op.alter_column('leads', 'desfecho',
+               existing_type=sa.Enum('EM_ANDAMENTO', 'GANHO', 'PERDIDO', 'CONGELADO_CADENCIA', name='desfecholead'),
+               type_=sa.VARCHAR(length=50),
+               existing_nullable=True,
+               existing_server_default=sa.text("'EM_ANDAMENTO'::character varying"))
+    op.alter_column('leads', 'etapa_funil',
+               existing_type=sa.Enum('NOVO_CONTATO', 'QUALIFICACAO', 'NEGOCIACAO', 'FECHAMENTO', name='etapafunil'),
+               type_=sa.VARCHAR(length=50),
+               existing_nullable=True,
+               existing_server_default=sa.text("'NOVO_CONTATO'::character varying"))
+    op.alter_column('leads', 'tipo_entrada',
+               existing_type=sa.Enum('INBOUND', 'OUTBOUND', name='tipoentradalead'),
+               type_=sa.VARCHAR(length=50),
+               existing_nullable=True,
+               existing_server_default=sa.text("'INBOUND'::character varying"))
+    op.drop_index('ix_interacoes_lead_criado', table_name='interacoes')
+    # ### end Alembic commands ###

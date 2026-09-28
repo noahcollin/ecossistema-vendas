@@ -18,8 +18,8 @@ from core.database import AsyncSessionLocal
 from core.config import settings
 from repositories.lead_repository import LeadRepository
 from services.lead_service import LeadService
-from services import buffer_service
-from services.uazapi_service import get_uazapi_client, close_uazapi_client
+from integrations.redis import buffer as buffer_service
+from integrations.uazapi.client import get_uazapi_client, close_uazapi_client
 import models
 import schemas
 

@@ -19,8 +19,8 @@ import models
 import schemas
 from repositories.lead_repository import LeadRepository
 from services.lead_service import LeadService
-from services.agents.sales_closer_agent import gerar_resposta_vendedor
-from services.agents.lead_analyzer_agent import analisar_lead_e_fsm
+from agents.sales_closer_agent import gerar_resposta_vendedor
+from agents.lead_analyzer_agent import analisar_lead_e_fsm
 
 TEST_PHONE = "+5583999990009"
 

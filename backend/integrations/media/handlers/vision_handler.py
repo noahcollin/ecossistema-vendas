@@ -4,45 +4,25 @@ Utiliza gpt-4o-mini Vision em modo detail: "low" para descrição concisa e econ
 """
 
 from core.logger import logger
-from core.openai_client import openai_client
-from services.media.prompts import PROMPT_OLHOS_DO_VENDEDOR
-from services.uazapi_service import baixar_arquivo
+from integrations.media.prompts import PROMPT_OLHOS_DO_VENDEDOR
+from integrations.media.handlers.base_vision import executar_analise_visual
+from integrations.uazapi.client import baixar_arquivo
 
 async def descrever_imagem_com_visao(url_ou_base64: str, mimetype: str = "image/jpeg") -> str:
     """
-    Invoca o gpt-4o-mini Vision para interpretar uma imagem estática ou figurinha.
+    Invoca a IA com visão computacional para interpretar uma imagem estática ou figurinha.
     """
-    try:
-        if url_ou_base64.startswith("http://") or url_ou_base64.startswith("https://"):
-            imagem_content = {"url": url_ou_base64, "detail": "low"}
-        elif url_ou_base64.startswith("data:"):
-            imagem_content = {"url": url_ou_base64, "detail": "low"}
-        else:
-            imagem_content = {"url": f"data:{mimetype};base64,{url_ou_base64}", "detail": "low"}
-
-        logger.info("[MEDIA VISION] 👁️ Analisando imagem com gpt-4o-mini Vision...")
-        
-        resposta = await openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": PROMPT_OLHOS_DO_VENDEDOR},
-                        {"type": "image_url", "image_url": imagem_content}
-                    ]
-                }
-            ],
-            max_tokens=120,
-            temperature=0.3
-        )
-        
-        descricao = resposta.choices[0].message.content.strip()
-        logger.info(f"[MEDIA VISION] ✅ Imagem interpretada: {descricao}")
-        return descricao
-    except Exception as e:
-        logger.error(f"[MEDIA VISION ERRO] Falha na interpretação visual: {e}")
-        return "Foto/Imagem enviada pelo cliente (não foi possível extrair os detalhes visuais)."
+    logger.info("[MEDIA VISION] 👁️ Analisando imagem com visão computacional...")
+    descricao = await executar_analise_visual(
+        url_ou_base64=url_ou_base64,
+        prompt_instrucao=PROMPT_OLHOS_DO_VENDEDOR,
+        mimetype=mimetype,
+        max_tokens=120,
+        temperature=0.3,
+        fallback_mensagem="Foto/Imagem enviada pelo cliente (não foi possível extrair os detalhes visuais)."
+    )
+    logger.info(f"[MEDIA VISION] ✅ Imagem interpretada: {descricao}")
+    return descricao
 
 async def processar_imagem(message, content_dict: dict, legenda: str) -> str:
     """

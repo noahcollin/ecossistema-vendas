@@ -8,14 +8,15 @@ import io
 import base64
 import pypdf
 from core.logger import logger
+from core.config import settings
 from core.openai_client import openai_client
-from services.media.prompts import PROMPT_RESUMO_PDF
-from services.uazapi_service import baixar_arquivo
+from integrations.media.prompts import PROMPT_RESUMO_PDF
+from integrations.uazapi.client import baixar_arquivo
 
 async def extrair_e_resumir_pdf(base64_pdf: str) -> str:
     """
     Decodifica o base64 do documento PDF e extrai o texto com pypdf.
-    Se o documento for longo, gera um resumo executivo objetivo com gpt-4o-mini.
+    Se o documento for longo, gera um resumo executivo objetivo com IA.
     """
     try:
         logger.info("[MEDIA PDF] 📄 Decodificando e extraindo texto do PDF...")
@@ -41,11 +42,11 @@ async def extrair_e_resumir_pdf(base64_pdf: str) -> str:
         if len(texto_completo) <= 400:
             return texto_completo
             
-        # Se for um documento mais extenso, usa gpt-4o-mini para fazer a síntese comercial
-        logger.info("[MEDIA PDF] 🤖 Sintetizando pontos comerciais do PDF com gpt-4o-mini...")
+        # Se for um documento mais extenso, usa o modelo de análise para fazer a síntese comercial
+        logger.info(f"[MEDIA PDF] 🤖 Sintetizando pontos comerciais do PDF com {settings.MODEL_ANALYZER}...")
         
         resposta = await openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=settings.MODEL_ANALYZER,
             messages=[
                 {"role": "system", "content": PROMPT_RESUMO_PDF},
                 {"role": "user", "content": texto_completo[:4000]}

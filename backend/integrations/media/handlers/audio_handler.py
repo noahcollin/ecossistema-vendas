@@ -9,7 +9,7 @@ import base64
 from core.logger import logger
 from core.openai_client import openai_client
 from core.config import settings
-from services.uazapi_service import baixar_arquivo
+from integrations.uazapi.client import baixar_arquivo
 
 async def transcrever_audio_com_whisper(base64_audio: str) -> str:
     """
@@ -66,5 +66,5 @@ async def processar_audio(message, content_dict: dict) -> str:
         transcricao_whisper = await transcrever_audio_com_whisper(base64_data)
         if transcricao_whisper:
             return f"[ÁUDIO/MENSAGEM DE VOZ DO CLIENTE: '{transcricao_whisper}']"
-            
-    return "[ÁUDIO ENVIADO PELO CLIENTE: (Não foi possível transcrever com clareza)]"
+
+    return "[ÁUDIO INAUDÍVEL: O cliente enviou uma mensagem de áudio, mas ela veio sem som legível, muda ou com muito ruído. Peça gentilmente para ele digitar ou mandar outro áudio.]"

@@ -85,12 +85,14 @@ class Lead(Base):
     
     # O "grampo" que liga o Lead aos seus post-its (Interações com exclusão em cascata)
     interacoes = relationship("Interacao", back_populates="lead", cascade="all, delete-orphan")
+    followups = relationship("FollowupAgendado", back_populates="lead", cascade="all, delete-orphan")
 
 
 # Definindo quem enviou a mensagem
 class InteracaoOrigem(str, enum.Enum):
     CLIENTE = "cliente"
     IA = "ia"
+    HUMANO = "humano"
     SISTEMA = "sistema"
 
 # Criando a tabela de post-its (histórico de mensagens)
@@ -109,3 +111,39 @@ class Interacao(Base):
     
     # Ligação de volta para a ficha do Lead
     lead = relationship("Lead", back_populates="interacoes")
+
+
+# ----------------- MOTOR DE CADÊNCIA E FOLLOW-UP (RF11 & RF12) -----------------
+
+class StatusFollowup(str, enum.Enum):
+    PENDENTE = "PENDENTE"
+    DISPARADO = "DISPARADO"
+    CANCELADO_POR_RESPOSTA = "CANCELADO_POR_RESPOSTA"
+    EXPIRADO = "EXPIRADO"
+    ABORTADO = "ABORTADO"
+
+class FollowupAgendado(Base):
+    """
+    Entidade de persistência do Motor de Cadência Temporal (RF11 & RF12 do PRD).
+    Rastreia agendamentos de resgate, tentativas (1 a 3), janelas de horário e status de cancelamento reativo.
+    """
+    __tablename__ = "followups_agendados"
+    __table_args__ = (
+        Index("ix_followup_status_agendado", "status", "agendado_para"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    lead_id = Column(Integer, ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, index=True)
+    etapa_funil = Column(Enum(EtapaFunil), nullable=False)
+    tentativa = Column(Integer, default=1, nullable=False)
+    agendado_para = Column(DateTime, nullable=False, index=True)
+    status = Column(Enum(StatusFollowup), default=StatusFollowup.PENDENTE, index=True)
+    mensagem_disparada = Column(String, nullable=True)
+    criado_em = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    atualizado_em = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
+    )
+
+    lead = relationship("Lead", back_populates="followups")

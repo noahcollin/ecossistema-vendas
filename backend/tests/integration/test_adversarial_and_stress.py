@@ -25,8 +25,8 @@ import models
 import schemas
 from repositories.lead_repository import LeadRepository
 from services.lead_service import LeadService
-from services import buffer_service
-from services.agents.sales_closer_agent import gerar_resposta_vendedor
+from integrations.redis import buffer as buffer_service
+from agents.sales_closer_agent import gerar_resposta_vendedor
 from api.routers.webhook import webhook_uazapi
 
 TEST_PREFIX = "+558397777"
@@ -60,7 +60,7 @@ async def test_2_protecao_contra_grupos():
     res = await webhook_uazapi(payload)
     print(f"   Resultado: {res}")
     assert res["status"] == "ignorado"
-    assert res["motivo"] == "mensagem_de_grupo"
+    assert res["motivo"] in ["mensagem_de_grupo", "mensagem_de_grupo_ou_canal"]
     print("✅ Mensagem de grupo (@g.us) descartada imediatamente, protegendo tokens e privacidade!")
 
 async def test_3_eventos_fantasmas_e_acks():

@@ -29,7 +29,14 @@ async def analisar_lead_e_fsm(
         janela_tamanho = settings.JANELA_HISTORICO_RECENTE
         mensagens_formatadas = []
         for interacao in historico_recente[-janela_tamanho:]:
-            remetente = "Cliente" if interacao.origem == models.InteracaoOrigem.CLIENTE else "Vendedor (IA)"
+            if interacao.origem == models.InteracaoOrigem.CLIENTE:
+                remetente = "Cliente"
+            elif interacao.origem == models.InteracaoOrigem.HUMANO:
+                remetente = "Consultor Humano (Equipe)"
+            elif interacao.origem == models.InteracaoOrigem.SISTEMA:
+                remetente = "Nota de Sistema"
+            else:
+                remetente = "Vendedor (IA)"
             mensagens_formatadas.append(f"{remetente}: {interacao.texto}")
         
         # Se nova_mensagem foi informada e ainda não está no histórico salvo
@@ -69,12 +76,23 @@ Com base nas informações acima e na nova interação do cliente, atualize a Fi
                 {"role": "user", "content": prompt_usuario}
             ],
             response_format=schemas.LeadAnalysisOutput,
-            temperature=0.2
+            temperature=0.0
         )
 
         resultado = resposta.choices[0].message.parsed
         if not resultado:
             raise ValueError("O modelo não retornou o formato estruturado esperado.")
+
+        # 🌟 GATILHO DINÂMICO DE TRANSBORDO: Lead VIP / Alto Valor
+        if resultado.valor_estimado and resultado.valor_estimado >= settings.TRANSBORDO_VIP_VALOR_MIN:
+            if not resultado.transbordo_sugerido:
+                resultado.transbordo_sugerido = True
+                resultado.justificativa = (
+                    f"{resultado.justificativa} | [Gatilho VIP]: Negociação de alto valor "
+                    f"(R$ {resultado.valor_estimado:,.2f}) encaminhada para consultor humano sênior."
+                )
+            if "VIP" not in resultado.tags_sugeridas:
+                resultado.tags_sugeridas.append("VIP")
 
         logger.info(
             f"[ANALISTA LEAD] 🎯 Lead {lead.telefone} avaliado | "

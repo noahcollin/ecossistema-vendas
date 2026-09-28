@@ -24,7 +24,7 @@ import models
 import schemas
 from repositories.lead_repository import LeadRepository
 from services.lead_service import LeadService
-from services.agents import (
+from agents import (
     analisar_lead_e_fsm,
     gerar_resposta_vendedor,
     auditar_jornada_lead,
@@ -33,7 +33,7 @@ from services.agents import (
     PROMPT_SISTEMA_ANALISTA,
     PROMPT_SISTEMA_AUDITOR,
 )
-from services.media.prompts import (
+from integrations.media.prompts import (
     PROMPT_OLHOS_DO_VENDEDOR,
     PROMPT_GIF,
     PROMPT_RESUMO_PDF,

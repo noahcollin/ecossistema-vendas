@@ -3,6 +3,8 @@ from redis import asyncio as aioredis
 from core.logger import logger
 from core.config import settings
 
+from core.exceptions import BufferOperationError
+
 # Pool de conexão assíncrona global para o Redis
 redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
 
@@ -25,11 +27,9 @@ async def adicionar_mensagem(telefone: str, texto: str) -> str:
         chave_buffer = f"buffer:{telefone}"
         chave_tempo = f"last_msg_time:{telefone}"
         
-        # Operação assíncrona atômica no Redis
         async with redis_client.pipeline(transaction=True) as pipe:
             pipe.rpush(chave_buffer, texto)
             pipe.set(chave_tempo, token_tempo)
-            # Define expiração de 10 minutos para evitar sujeira se o sistema reiniciar
             pipe.expire(chave_buffer, 600)
             pipe.expire(chave_tempo, 600)
             await pipe.execute()
@@ -52,13 +52,17 @@ async def verificar_se_e_ultima(telefone: str, token_disparado: str | float) -> 
         if not ultimo_tempo:
             return False
             
-        token_str = str(token_disparado)
-        if ultimo_tempo == token_str:
+        token_str = str(token_disparado).strip()
+        ultimo_tempo_str = str(ultimo_tempo).strip()
+        if ultimo_tempo_str == token_str:
             return True
             
-        # Fallback de compatibilidade para floats legados
         try:
-            return abs(float(ultimo_tempo) - float(token_disparado)) < 0.0001
+            # Se contiver ponto decimal (formato segundos unix legado), permite tolerância de ponto flutuante
+            if "." in token_str or "." in ultimo_tempo_str:
+                return abs(float(ultimo_tempo_str) - float(token_str)) < 0.0001
+            # Para inteiros como nanosegundos (time_ns), igualdade estrita de strings já define se é a última
+            return False
         except (ValueError, TypeError):
             return False
     except Exception as e:
@@ -74,14 +78,11 @@ async def obter_e_limpar_buffer(telefone: str) -> list[str]:
         chave_buffer = f"buffer:{telefone}"
         chave_tempo = f"last_msg_time:{telefone}"
         
-        # Execução atômica no Redis (sem risco de perda de mensagens entre leitura e exclusão)
         mensagens = await redis_client.eval(LUA_OBTER_E_LIMPAR, 2, chave_buffer, chave_tempo)
-        
         logger.info(f"[BUFFER] 📦 {len(mensagens or [])} mensagens consolidadas e retiradas atomicamente de {telefone}")
         return mensagens or []
     except Exception as e:
         logger.error(f"[BUFFER ERRO] Falha ao recuperar/limpar buffer atomicamente no Redis: {e}")
-        # Fallback defensivo não atômico se eval falhar
         try:
             chave_buffer = f"buffer:{telefone}"
             chave_tempo = f"last_msg_time:{telefone}"
@@ -90,4 +91,4 @@ async def obter_e_limpar_buffer(telefone: str) -> list[str]:
             return msgs or []
         except Exception as inner_e:
             logger.error(f"[BUFFER ERRO CRÍTICO] Fallback no Redis falhou: {inner_e}")
-            return []
+            raise BufferOperationError(f"Falha irrecuperável no buffer Redis para {telefone}: {inner_e}") from inner_e

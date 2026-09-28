@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 from core.database import AsyncSessionLocal
 import models
 import schemas
-from services.agents import analisar_lead_e_fsm, gerar_resposta_vendedor
+from agents import analisar_lead_e_fsm, gerar_resposta_vendedor
 from sqlalchemy import select, delete
 
 async def test_reset_and_out_of_scope():

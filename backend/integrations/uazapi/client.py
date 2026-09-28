@@ -2,6 +2,8 @@ import asyncio
 import httpx
 from core.logger import logger
 from core.config import settings
+from core.utils import dividir_mensagens_whatsapp
+from integrations.redis.buffer import redis_client
 
 _shared_client: httpx.AsyncClient | None = None
 
@@ -88,6 +90,18 @@ async def enviar_mensagem(telefone: str, texto: str, delay_ms: int = 2000, max_r
             resposta.raise_for_status()
             
             dados = resposta.json()
+            if isinstance(dados, dict):
+                msg_id = dados.get("id") or dados.get("messageid") or dados.get("messageId")
+                if not msg_id and isinstance(dados.get("key"), dict):
+                    msg_id = dados["key"].get("id")
+                if msg_id:
+                    try:
+                        await redis_client.setex(f"bot_outbound:{msg_id}", 300, "1")
+                        if ":" in str(msg_id):
+                            await redis_client.setex(f"bot_outbound:{str(msg_id).split(':')[-1]}", 300, "1")
+                    except Exception:
+                        pass
+
             logger.info(f"[UAZAPI SEND] 🚀 Mensagem enviada para {telefone} com sucesso!")
             return {"status": "sucesso", "dados": dados}
             
@@ -110,6 +124,61 @@ async def enviar_mensagem(telefone: str, texto: str, delay_ms: int = 2000, max_r
             
     return {"status": "erro", "detalhe": "Max retries excedido"}
 
+
+async def enviar_mensagem_humanizada(
+    telefone: str,
+    texto_bruto: str,
+    delay_base_ms: int = 1500,
+    simular_digitacao: bool = True,
+    intervalo_entre_baloes: float = 1.8
+) -> tuple[list[str], bool]:
+    """
+    Orquestra o envio de uma mensagem comercial dividida em balões humanizados.
+    Garante que qualquer mensagem da IA (Inbound, Follow-up, Reativação):
+    1. Passe pela fragmentação inteligente (dividir_mensagens_whatsapp).
+    2. Seja enviada sequencialmente simulando presença de digitação ('composing') no WhatsApp.
+    3. Mantenha espaçamento temporal natural entre cada balão (~1.8s) para nunca inundar o cliente.
+
+    Retorna:
+        tuple[list[str], bool]: (baloes_efetivamente_enviados, sucesso_geral)
+    """
+    if not texto_bruto or not texto_bruto.strip():
+        return [], False
+
+    baloes = dividir_mensagens_whatsapp(texto_bruto)
+    if not baloes:
+        baloes = [texto_bruto.strip()]
+
+    baloes_enviados: list[str] = []
+    todos_enviados_com_sucesso = True
+
+    for idx, parte in enumerate(baloes):
+        if not parte.strip():
+            continue
+
+        # Para balões subsequentes, simula digitação e pausa orgânica antes do disparo
+        if idx > 0 and simular_digitacao:
+            await enviar_presenca(telefone, presenca="composing", delay_ms=3000)
+            tempo_pausa = min(max(len(parte) * 0.015, intervalo_entre_baloes), intervalo_entre_baloes + 1.0)
+            await asyncio.sleep(tempo_pausa)
+        elif idx == 0 and simular_digitacao:
+            # Digitação inicial breve para o primeiro balão
+            await enviar_presenca(telefone, presenca="composing", delay_ms=2500)
+            await asyncio.sleep(1.2)
+
+        res = await enviar_mensagem(telefone, parte, delay_ms=delay_base_ms)
+        if isinstance(res, dict) and res.get("status") == "erro":
+            logger.error(
+                f"[UAZAPI HUMANIZADO] ❌ Falha no disparo do balão {idx + 1}/{len(baloes)} para {telefone}: {res}"
+            )
+            todos_enviados_com_sucesso = False
+            break
+
+        baloes_enviados.append(parte)
+
+    return baloes_enviados, todos_enviados_com_sucesso
+
+
 async def baixar_arquivo(message_id: str, generate_mp3: bool = False) -> dict:
     """
     Solicita o download do arquivo de uma mensagem diretamente via API da Uazapi.
@@ -125,7 +194,6 @@ async def baixar_arquivo(message_id: str, generate_mp3: bool = False) -> dict:
         "token": settings.UAZAPI_TOKEN
     }
     
-    # Se o ID vier no formato "remetente:ID", extrai apenas o ID após os dois pontos
     id_limpo = message_id.split(":")[-1] if ":" in message_id else message_id
     
     body = {
@@ -151,6 +219,4 @@ async def baixar_arquivo(message_id: str, generate_mp3: bool = False) -> dict:
         logger.error(f"[UAZAPI DOWNLOAD ERRO] Falha ao contatar /message/download: {e}")
         return {}
 
-# Alias para compatibilidade
 baixar_arquivo_uazapi = baixar_arquivo
-

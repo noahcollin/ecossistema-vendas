@@ -25,7 +25,7 @@ from core.config import settings
 import models
 import schemas
 from repositories.lead_repository import LeadRepository
-from services.agents import (
+from agents import (
     analisar_lead_e_fsm,
     gerar_resposta_vendedor,
     auditar_jornada_lead

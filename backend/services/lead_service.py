@@ -4,9 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.logger import logger
 from repositories.lead_repository import LeadRepository
-from services import buffer_service, agents
+from integrations.redis import buffer as buffer_service
+import agents
 import models
 import schemas
+from services.followup_service import FollowupService
 
 class LeadService:
     """
@@ -64,6 +66,10 @@ class LeadService:
             raise HTTPException(status_code=404, detail="Lead não encontrado")
 
         await LeadRepository.delete_interactions_by_lead_id(db, lead_id)
+        
+        # 🛑 Cancela follow-ups agendados da conversa anterior para evitar disparos zumbis
+        await FollowupService.cancelar_followups_pendentes(db, lead_id, models.StatusFollowup.ABORTADO)
+
         lead.etapa_funil = models.EtapaFunil.NOVO_CONTATO
         lead.desfecho = models.DesfechoLead.EM_ANDAMENTO
         lead.controle = models.ControleAtendimento.PILOTO_IA

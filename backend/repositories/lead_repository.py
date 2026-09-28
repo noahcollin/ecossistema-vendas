@@ -2,6 +2,7 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
 import models
 
 class LeadRepository:
@@ -62,6 +63,7 @@ class LeadRepository:
         controle: Optional[models.ControleAtendimento] = models.ControleAtendimento.PILOTO_IA,
         temperatura: Optional[models.TemperaturaLead] = models.TemperaturaLead.FRIO,
         valor_estimado: Optional[float] = None,
+        tags: Optional[List[str]] = None,
         status: Optional[Any] = None
     ) -> models.Lead:
         """Cria e persiste um novo Lead com as 4 dimensões de vendas e canal de aquisição."""
@@ -75,14 +77,21 @@ class LeadRepository:
             controle=controle or models.ControleAtendimento.PILOTO_IA,
             temperatura=temperatura or models.TemperaturaLead.FRIO,
             valor_estimado=valor_estimado,
-            tags=[],
+            tags=tags or [],
             opt_out=False,
             status=status or models.LeadStatus.NOVO
         )
-        db.add(novo_lead)
-        await db.commit()
-        await db.refresh(novo_lead)
-        return novo_lead
+        try:
+            db.add(novo_lead)
+            await db.commit()
+            await db.refresh(novo_lead)
+            return novo_lead
+        except IntegrityError:
+            await db.rollback()
+            existente = await LeadRepository.get_by_phone(db, telefone)
+            if existente:
+                return existente
+            raise
 
     @staticmethod
     async def update_multidimensional(
@@ -125,6 +134,25 @@ class LeadRepository:
         return lead
 
     @staticmethod
+    def sincronizar_tags(
+        lead: models.Lead,
+        adicionar: Optional[List[str]] = None,
+        remover: Optional[List[str]] = None
+    ) -> List[str]:
+        """Adiciona e remove tags de forma idempotente, higienizada e normalizada no Lead."""
+        tags_set = set(t.strip().upper() for t in (lead.tags or []) if t and t.strip())
+        if remover:
+            for r in remover:
+                if r and r.strip():
+                    tags_set.discard(r.strip().upper())
+        if adicionar:
+            for a in adicionar:
+                if a and a.strip():
+                    tags_set.add(a.strip().upper())
+        lead.tags = sorted(list(tags_set))
+        return lead.tags
+
+    @staticmethod
     async def delete_interactions_by_lead_id(db: AsyncSession, lead_id: int) -> int:
         """Deleta todas as interações vinculadas a um Lead."""
         result = await db.execute(delete(models.Interacao).where(models.Interacao.lead_id == lead_id))
@@ -162,17 +190,37 @@ class LeadRepository:
         return list(reversed(resultado.scalars().all()))
 
     @staticmethod
+    async def get_latest_interaction_by_origins(
+        db: AsyncSession,
+        lead_id: int,
+        origens: List[models.InteracaoOrigem]
+    ) -> Optional[models.Interacao]:
+        """Retorna a interação mais recente de um lead filtrada por uma lista de origens."""
+        query = (
+            select(models.Interacao)
+            .where(
+                models.Interacao.lead_id == lead_id,
+                models.Interacao.origem.in_(origens)
+            )
+            .order_by(models.Interacao.criado_em.desc())
+            .limit(1)
+        )
+        resultado = await db.execute(query)
+        return resultado.scalars().first()
+
+    @staticmethod
     async def add_interaction(
         db: AsyncSession,
         lead_id: int,
         origem: models.InteracaoOrigem,
         texto: str
     ) -> models.Interacao:
-        """Registra uma nova interação vinculada ao Lead."""
+        """Registra uma nova interação vinculada ao Lead (higieniza bytes nulos para Postgres)."""
+        texto_limpo = str(texto or "").replace("\x00", "")
         nova_interacao = models.Interacao(
             lead_id=lead_id,
             origem=origem,
-            texto=texto
+            texto=texto_limpo
         )
         db.add(nova_interacao)
         await db.commit()
@@ -188,6 +236,16 @@ class LeadRepository:
         """Persiste o Dossiê Executivo Comercial no cadastro do Lead."""
         lead.dossie_comercial = dossie_dict
         await db.commit()
-        await db.refresh(lead)
         return lead
+
+    @staticmethod
+    async def recarregar_lead(
+        db: AsyncSession,
+        lead_id: int
+    ) -> Optional[models.Lead]:
+        """
+        Recarrega o estado mais recente do Lead diretamente do banco (populate_existing=True),
+        isolando completamente a semântica da sessão SQLAlchemy do Application Service.
+        """
+        return await db.get(models.Lead, lead_id, populate_existing=True)
 

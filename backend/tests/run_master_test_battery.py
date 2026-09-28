@@ -60,6 +60,51 @@ SUITES = [
         "id": "8",
         "nome": "Segurança de Webhook, FinOps de LLM e Alta Concorrência",
         "arquivo": "tests/integration/test_security_scalability_finops.py"
+    },
+    {
+        "id": "9",
+        "nome": "Motor de Cadência Temporal e Follow-Up Ativo (RF11 & RF12)",
+        "arquivo": "tests/integration/test_cadencia_followup.py"
+    },
+    {
+        "id": "10",
+        "nome": "Transbordo Humano Dinâmico, Alertas e Handover (RF10)",
+        "arquivo": "tests/integration/test_transbordo_dinamico_e_handover.py"
+    },
+    {
+        "id": "11",
+        "nome": "Cenário de Negociação Pós-Transbordo e Follow-Up Reativo",
+        "arquivo": "tests/integration/test_cenario_transbordo_para_negociacao_e_followup.py"
+    },
+    {
+        "id": "12",
+        "nome": "Atendimento Iniciado por Humano via WhatsApp (Outbound)",
+        "arquivo": "tests/integration/test_humano_inicia_atendimento.py"
+    },
+    {
+        "id": "13",
+        "nome": "Timeout de Inatividade Humana e Auto-Retomada da IA",
+        "arquivo": "tests/integration/test_transbordo_timeout_auto_retomada.py"
+    },
+    {
+        "id": "14",
+        "nome": "Chaos Engineering, Resiliência a Concorrência e Tipos Tóxicos",
+        "arquivo": "tests/integration/test_chaos_stress_and_vulnerabilities.py"
+    },
+    {
+        "id": "15",
+        "nome": "Casos de Borda Avançados, Nanosegundos Redis e Gateway Resilience",
+        "arquivo": "tests/integration/test_advanced_edge_cases_and_resilience.py"
+    },
+    {
+        "id": "16",
+        "nome": "Blindagem contra Duplo Disparo, Canais e Zero-Click Takeover",
+        "arquivo": "tests/integration/test_deep_chaos_and_subtle_bugs.py"
+    },
+    {
+        "id": "17",
+        "nome": "Colisão em Voo, Buffer Ativo de Follow-up e LGPD Determinístico",
+        "arquivo": "tests/integration/test_advanced_collisions_and_guardrails.py"
     }
 ]
 

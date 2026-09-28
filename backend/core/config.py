@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     
     # Segurança de Entrada e Webhook
     WEBHOOK_SECRET_TOKEN: str = ""  # Se definido, exige X-Webhook-Secret ou ?token=
+    CORS_ORIGINS: str = "*"  # Origens permitidas separadas por vírgula (ex: 'https://painel.com,http://localhost:3000')
     
     # Parâmetros de Alta Concorrência e Pool do PostgreSQL
     DB_POOL_SIZE: int = 25
@@ -52,6 +53,29 @@ class Settings(BaseSettings):
     
     # Parâmetros de Rede e Timeouts
     UAZAPI_TIMEOUT_SECONDS: float = 15.0
+
+    # Motor de Cadência e Follow-Up Cronometrado (Fase 2 do PRD - RF11 e RF12)
+    FOLLOWUP_ENABLED: bool = True
+    FOLLOWUP_INTERVAL_1_HOURS: float = 2.0
+    FOLLOWUP_INTERVAL_2_HOURS: float = 24.0
+    FOLLOWUP_INTERVAL_3_HOURS: float = 72.0
+    FOLLOWUP_WORKER_POLL_INTERVAL_SECONDS: int = 30
+    BUSINESS_HOURS_START: str = "08:30"
+    BUSINESS_HOURS_END: str = "18:30"
+    BUSINESS_HOURS_SATURDAY_END: str = "12:30"
+
+    # Blindagem Anti-Ban e Human Pacing (Escalonamento Temporal de Follow-ups)
+    FOLLOWUP_PACING_MIN_SECONDS: float = 30.0   # Respiro mínimo entre mensagens sucessivas no worker
+    FOLLOWUP_PACING_MAX_SECONDS: float = 60.0   # Respiro máximo entre mensagens sucessivas no worker
+    FOLLOWUP_JITTER_STEP_MINUTES: float = 3.0   # Espaçamento entre leads acumulados na reabertura
+    FOLLOWUP_SIMULAR_DIGITACAO: bool = True     # Simula 'digitando...' antes do envio
+
+    # Transbordo Humano e Gestão de Exceções (Seção 6 e RF10 do PRD)
+    SUPERVISOR_PHONE: str = ""                  # Telefone WhatsApp da equipe/supervisor para alertas
+    TRANSBORDO_WEBHOOK_URL: str = ""             # Webhook externo para alertas (Slack, Discord, CRM)
+    TRANSBORDO_VIP_VALOR_MIN: float = 10000.0    # Gatilho de alto valor para transbordo consultivo VIP
+    TRANSBORDO_ENVIAR_MENSAGEM_CLIENTE: bool = False  # False para simulação humana 100% invisível ao cliente
+    TRANSBORDO_INACTIVITY_TIMEOUT_MINUTES: int = 60  # Tempo de inatividade humana antes da IA reassumir o lead
 
     model_config = SettingsConfigDict(
         env_file=os.path.join(os.path.dirname(__file__), "..", "..", ".env"),

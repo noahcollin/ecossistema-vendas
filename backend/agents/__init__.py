@@ -6,16 +6,24 @@ Separação de papéis:
 """
 
 from .lead_analyzer_agent import analisar_lead_e_fsm
-from .sales_closer_agent import gerar_resposta_vendedor
+from .sales_closer_agent import gerar_resposta_vendedor, gerar_mensagem_followup
 from .deal_auditor_agent import auditar_jornada_lead
-from .prompts import PROMPT_BASE_VENDEDOR, ORIENTACOES_POR_ESTAGIO, PROMPT_SISTEMA_ANALISTA, PROMPT_SISTEMA_AUDITOR
+from .prompts import (
+    PROMPT_BASE_VENDEDOR,
+    ORIENTACOES_POR_ESTAGIO,
+    ORIENTACOES_FOLLOWUP,
+    PROMPT_SISTEMA_ANALISTA,
+    PROMPT_SISTEMA_AUDITOR
+)
 
 __all__ = [
     "analisar_lead_e_fsm",
     "gerar_resposta_vendedor",
+    "gerar_mensagem_followup",
     "auditar_jornada_lead",
     "PROMPT_BASE_VENDEDOR",
     "ORIENTACOES_POR_ESTAGIO",
+    "ORIENTACOES_FOLLOWUP",
     "PROMPT_SISTEMA_ANALISTA",
     "PROMPT_SISTEMA_AUDITOR"
 ]

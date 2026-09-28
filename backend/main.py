@@ -1,12 +1,17 @@
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
+import time
+from core.logger import logger
 from core.database import engine, Base, AsyncSessionLocal
 from core.config import settings
-from services.buffer_service import redis_client
+from integrations.redis.buffer import redis_client
+from services.followup_service import FollowupService
+from services.inbound_service import InboundService
 import models 
 
 from api.routers import leads, webhook, testes
@@ -15,22 +20,36 @@ from api.routers import leads, webhook, testes
 async def lifespan(app: FastAPI):
     # Roda uma única vez ANTES do servidor ligar e aceitar requisições
     async with engine.begin() as conn:
+        # Schema é governado via migrações Alembic (alembic upgrade head)
         await conn.run_sync(Base.metadata.create_all)
-        # Migração idempotente para garantir novas colunas em tabelas existentes
-        await conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS resumo_perfil TEXT;"))
-        await conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS dados_qualificacao JSONB;"))
-        await conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS etapa_funil VARCHAR(50) DEFAULT 'NOVO_CONTATO';"))
-        await conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS desfecho VARCHAR(50) DEFAULT 'EM_ANDAMENTO';"))
-        await conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS controle VARCHAR(50) DEFAULT 'PILOTO_IA';"))
-        await conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS temperatura VARCHAR(20) DEFAULT 'FRIO';"))
-        await conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS motivo_perda VARCHAR(255);"))
-        await conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS valor_estimado DOUBLE PRECISION;"))
-        await conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS tags JSONB DEFAULT '[]'::jsonb;"))
-        await conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS opt_out BOOLEAN DEFAULT FALSE;"))
-        await conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS dossie_comercial JSONB;"))
-        await conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS tipo_entrada VARCHAR(50) DEFAULT 'INBOUND';"))
-        await conn.execute(text("ALTER TABLE leads ADD COLUMN IF NOT EXISTS origem_canal VARCHAR(100) DEFAULT 'WHATSAPP_DIRETO';"))
-    yield
+
+    # Inicia o Motor de Cadência Temporal e Follow-Up em Segundo Plano (RF11 & RF12 do PRD)
+    worker_task = asyncio.create_task(FollowupService.worker_loop())
+
+    # 🔄 Recuperação Resiliente de Buffers Órfãos no Redis (Pós-Crash / Pós-Restart)
+    async def recuperar_buffers_pendentes():
+        try:
+            await asyncio.sleep(2.0)  # Aguarda estabilização dos serviços
+            chaves = await redis_client.keys("buffer:*")
+            if chaves:
+                for chave in chaves:
+                    telefone = chave.replace("buffer:", "")
+                    token = await redis_client.get(f"last_msg_time:{telefone}") or str(time.time_ns())
+                    asyncio.create_task(InboundService.processar_debounce(telefone, "Cliente", token))
+                    logger.info(f"[RECOVERY STARTUP] 🔄 Recuperado buffer órfão no Redis para {telefone} e iniciado debounce.")
+        except Exception as err:
+            logger.error(f"[RECOVERY STARTUP ERRO] Falha ao escanear buffers órfãos no Redis: {err}")
+
+    asyncio.create_task(recuperar_buffers_pendentes())
+
+    try:
+        yield
+    finally:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
 
 app = FastAPI(
     title="Ecossistema de Vendas Autônomo API",
@@ -39,11 +58,19 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Middleware de CORS para permitir integração com dashboards e frontends
+# Middleware de CORS configurável e seguro para dashboards e frontends (W3C compliant)
+cors_origens_raw = (settings.CORS_ORIGINS or "*").strip()
+if cors_origens_raw == "*":
+    cors_origens = ["*"]
+    permitir_credenciais = False
+else:
+    cors_origens = [o.strip() for o in cors_origens_raw.split(",") if o.strip()]
+    permitir_credenciais = True
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origens,
+    allow_credentials=permitir_credenciais,
     allow_methods=["*"],
     allow_headers=["*"],
 )

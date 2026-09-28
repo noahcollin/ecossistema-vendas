@@ -24,7 +24,7 @@ import schemas
 from main import app
 from repositories.lead_repository import LeadRepository
 from services.lead_service import LeadService
-from services.agents.deal_auditor_agent import auditar_jornada_lead
+from agents.deal_auditor_agent import auditar_jornada_lead
 
 TEST_PHONE = "+5583966660001"
 

@@ -4,7 +4,7 @@ from sqlalchemy import text
 
 from core.database import get_db
 import schemas
-from services import uazapi_service
+from integrations.uazapi import client as uazapi_service
 
 router = APIRouter(tags=["Testes Essenciais"])
 

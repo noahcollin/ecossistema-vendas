@@ -1,4 +1,5 @@
-from pydantic import BaseModel, ConfigDict
+from datetime import datetime
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, Any, Union
 from models import (
     LeadStatus,
@@ -6,7 +7,9 @@ from models import (
     DesfechoLead,
     ControleAtendimento,
     TemperaturaLead,
-    TipoEntradaLead
+    TipoEntradaLead,
+    StatusFollowup,
+    InteracaoOrigem
 )
 
 # ----------------- ESQUEMAS DO LEAD -----------------
@@ -15,12 +18,14 @@ class DadosQualificacao(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     cidade: Optional[str] = None
-    segmento: Optional[str] = None  # ex: residencial, comercial, industrial
+    segmento: Optional[str] = None  # ex: clínica, varejo, escola, barbearia, serviços
+    solucao_interesse: Optional[str] = None  # ex: AGENTES_AUTONOMOS, CHAT_INTELIGENTTE, DEMAND_AI
+    gargalo_principal: Optional[str] = None  # ex: demora no retorno, atendimento 24/7, múltiplos atendentes
+    tamanho_equipe: Optional[str] = None  # ex: 1-5, 6-15, 15+
     tipo_imovel: Optional[str] = None
     detalhes: Optional[str] = None
-    objecoes_detectadas: list[str] = []
+    objecoes_detectadas: list[str] = Field(default_factory=list)
     dados_cadastrais: Optional[str] = None
-    # Campo opcional para o nicho de teste atual (energia solar)
     consumo_estimado_reais: Optional[float] = None
 
 # Esquema para quando o cliente nos envia dados (não exigimos ID, é automático)
@@ -55,7 +60,7 @@ class LeadResponse(BaseModel):
     # Inteligência Analítica para o Dashboard
     motivo_perda: Optional[str] = None
     valor_estimado: Optional[float] = None
-    tags: list[str] = []
+    tags: list[str] = Field(default_factory=list)
     opt_out: bool = False
     
     # Memória de Longo Prazo
@@ -80,7 +85,7 @@ class LeadAnalysisOutput(BaseModel):
     origem_canal_detectada: Optional[str] = None  # Origem identificada (META_ADS, GOOGLE_SEARCH, SITE_LANDING_PAGE, INDICACAO, etc.)
     motivo_perda: Optional[str] = None  # Termo curto (1 a 3 palavras) se desfecho for PERDIDO
     valor_estimado: Optional[float] = None  # Valor financeiro do deal/orçamento/fatura se mencionado
-    tags_sugeridas: list[str] = []  # Tags comportamentais
+    tags_sugeridas: list[str] = Field(default_factory=list)  # Tags comportamentais
     opt_out_detectado: bool = False  # True se o cliente pediu remoção/LGPD (pare, não mande mensagem)
     justificativa: str  # Justificativa da decisão analítica
     dados_qualificacao: DadosQualificacao  # Atributos estruturados do nicho
@@ -107,8 +112,8 @@ class DossieComercialOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     historia_do_lead: str
-    o_que_agradou: list[str] = []
-    pontos_de_atrito_e_queixas: list[str] = []
+    o_que_agradou: list[str] = Field(default_factory=list)
+    pontos_de_atrito_e_queixas: list[str] = Field(default_factory=list)
     resultado_final: DossieResultado
     estrategia_utilizada: str
     nota_atendimento_ia: float
@@ -118,6 +123,52 @@ class DossieComercialOutput(BaseModel):
     tipo_entrada: Optional[str] = None
     origem_canal: Optional[str] = None
 
+
+
+# ----------------- ESQUEMAS DO MOTOR DE FOLLOW-UP (RF11 & RF12) -----------------
+
+class FollowupAgendadoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    lead_id: int
+    etapa_funil: EtapaFunil
+    tentativa: int
+    agendado_para: datetime
+    status: StatusFollowup
+    mensagem_disparada: Optional[str] = None
+    criado_em: Optional[datetime] = None
+    atualizado_em: Optional[datetime] = None
+
+
+# ----------------- ESQUEMAS DE TRANSBORDO HUMANO (RF10) -----------------
+
+class TransbordoAssumirRequest(BaseModel):
+    atendente: Optional[str] = "Especialista"
+
+class TransbordoDevolverRequest(BaseModel):
+    diretriz_ia: Optional[str] = None
+    etapa_sugerida: Optional[EtapaFunil] = None
+    valor_estimado: Optional[float] = None
+
+class TransbordoSolicitarRequest(BaseModel):
+    motivo: str = "Solicitação manual via painel"
+    lead_vip: Optional[bool] = False
+
+class MensagemHumanaManualRequest(BaseModel):
+    texto: str
+    atendente: Optional[str] = "Atendente"
+
+class TransbordoStatusResponse(BaseModel):
+    lead_id: int
+    nome: Optional[str] = None
+    telefone: str
+    controle: ControleAtendimento
+    etapa_funil: EtapaFunil
+    temperatura: TemperaturaLead
+    valor_estimado: Optional[float] = None
+    tags: list[str] = Field(default_factory=list)
+    mensagem: str
 
 
 # ----------------- ESQUEMAS DA UAZAPI -----------------

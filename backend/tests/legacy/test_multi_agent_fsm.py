@@ -9,7 +9,7 @@ from sqlalchemy import select, delete
 from core.database import AsyncSessionLocal
 import models
 import schemas
-from services.agents import analisar_lead_e_fsm, gerar_resposta_vendedor, auditar_jornada_lead
+from agents import analisar_lead_e_fsm, gerar_resposta_vendedor, auditar_jornada_lead
 
 async def run_fsm_integration_test():
     print("\n" + "="*70)
