@@ -4,7 +4,12 @@ Testes Unitários de Segurança, Mascaramento LGPD e Exceções Customizadas.
 
 import hmac
 import pytest
-from core.utils import mascarar_telefone, mascarar_nome, dividir_mensagens_whatsapp
+from core.utils import (
+    mascarar_telefone,
+    mascarar_nome,
+    dividir_mensagens_whatsapp,
+    higienizar_nome_perfil,
+)
 from core.exceptions import (
     AppException,
     DomainException,
@@ -30,6 +35,20 @@ def test_mascarar_nome_lgpd():
     assert mascarar_nome("Oi") == "Oi"
     assert mascarar_nome("") == "Anônimo"
     assert mascarar_nome(None) == "Anônimo"
+
+
+def test_higienizar_nome_perfil():
+    """Valida a limpeza de caracteres de nome sem bloqueio arbitrário de palavras."""
+    assert higienizar_nome_perfil("Carlos Silva") == "Carlos Silva"
+    assert higienizar_nome_perfil("  maria  de  jesus  ") == "Maria De Jesus"
+    assert higienizar_nome_perfil("Lucas Amorim ✨") == "Lucas Amorim"
+    assert higienizar_nome_perfil("Gabriel Paz!") == "Gabriel Paz"
+    # Caracteres sem letras válidas retornam None
+    assert higienizar_nome_perfil("🔥🚀") is None
+    assert higienizar_nome_perfil("...") is None
+    assert higienizar_nome_perfil("12345") is None
+    assert higienizar_nome_perfil("") is None
+    assert higienizar_nome_perfil(None) is None
 
 
 def test_exceptions_hierarchy():

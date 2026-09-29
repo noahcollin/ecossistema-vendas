@@ -55,7 +55,11 @@ async def gerar_resposta_vendedor(
         # Orientação contextual sobre o nome do cliente
         if nome_validado:
             primeiro_nome = nome_validado.split()[0]
-            instrucao_nome = f"\n[TRATAMENTO]: O cliente se chama {nome_validado}. Chame-o pelo primeiro nome ({primeiro_nome}) com simpatia e naturalidade."
+            instrucao_nome = (
+                f"\n[TRATAMENTO]: O nome informado no perfil é '{nome_validado}'. "
+                f"Se parecer o nome real de uma pessoa, chame-o pelo primeiro nome ({primeiro_nome}) com simpatia. "
+                "Se for o nome de uma loja, empresa, frase ou versículo, use saudações calorosas sem chamá-lo por esse termo, e pergunte como prefere ser chamado se for oportuno."
+            )
         else:
             instrucao_nome = "\n[TRATAMENTO]: O nome exato não foi identificado no perfil. Use saudações neutras e acolhedoras e, se for início de conversa, pergunte o nome dele."
 
@@ -145,7 +149,11 @@ async def gerar_mensagem_followup(
         nome_validado = higienizar_nome_perfil(nome_cliente_bruto)
         if nome_validado:
             primeiro_nome = nome_validado.split()[0]
-            instrucao_nome = f"\n[TRATAMENTO]: O cliente se chama {nome_validado}. Chame-o pelo primeiro nome ({primeiro_nome}) com simpatia e naturalidade."
+            instrucao_nome = (
+                f"\n[TRATAMENTO]: O nome informado no perfil é '{nome_validado}'. "
+                f"Se parecer o nome real de uma pessoa, chame-o pelo primeiro nome ({primeiro_nome}) com simpatia. "
+                "Se for o nome de uma loja, empresa, frase ou versículo, use uma saudação acolhedora sem chamá-lo por esse termo."
+            )
         else:
             instrucao_nome = "\n[TRATAMENTO]: O nome exato não foi identificado. Use saudação acolhedora e educada."
 
