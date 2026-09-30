@@ -41,9 +41,8 @@ async def gerar_resposta_vendedor(
     nome_cliente_bruto: str,
     ficha_resumo: Optional[str],
     etapa_funil: Optional[models.EtapaFunil] = None,
-    historico_recente: Optional[List[models.Interacao]] = None,
-    status_funil: Optional[Any] = None  # fallback retrocompatível
-) -> str:
+    historico_recente: Optional[List[models.Interacao]] = None
+) -> Optional[str]:
     """
     Gera a resposta humanizada do Vendedor ('Seu Zé') via GPT-4o,
     alimentado pela Ficha do Lead, etapa atual da jornada e últimas mensagens imediatas.
@@ -52,33 +51,14 @@ async def gerar_resposta_vendedor(
         historico_lista = list(historico_recente) if historico_recente else []
         nome_validado = higienizar_nome_perfil(nome_cliente_bruto)
         
-        # Orientação contextual sobre o nome do cliente
+        # Identificação de nome de perfil do WhatsApp
         if nome_validado:
-            primeiro_nome = nome_validado.split()[0]
-            instrucao_nome = (
-                f"\n[TRATAMENTO]: O nome informado no perfil é '{nome_validado}'. "
-                f"Se parecer o nome real de uma pessoa, chame-o pelo primeiro nome ({primeiro_nome}) com simpatia. "
-                "Se for o nome de uma loja, empresa, frase ou versículo, use saudações calorosas sem chamá-lo por esse termo, e pergunte como prefere ser chamado se for oportuno."
-            )
+            instrucao_nome = f"\n[NOME_NO_PERFIL]: {nome_validado}"
         else:
-            instrucao_nome = "\n[TRATAMENTO]: O nome exato não foi identificado no perfil. Use saudações neutras e acolhedoras e, se for início de conversa, pergunte o nome dele."
+            instrucao_nome = "\n[NOME_NO_PERFIL]: Não informado no perfil do WhatsApp."
 
         # Orientação conforme a etapa do funil (FSM)
-        etapa_atual = etapa_funil
-        if not etapa_atual:
-            if status_funil and hasattr(status_funil, "value"):
-                # Conversão heurística do legado
-                val = str(status_funil.value)
-                if "NOVO" in val:
-                    etapa_atual = models.EtapaFunil.NOVO_CONTATO
-                elif "QUALIFICACAO" in val:
-                    etapa_atual = models.EtapaFunil.QUALIFICACAO
-                elif "FECHAMENTO" in val or "CONTRATO" in val:
-                    etapa_atual = models.EtapaFunil.FECHAMENTO
-                else:
-                    etapa_atual = models.EtapaFunil.NEGOCIACAO
-            else:
-                etapa_atual = models.EtapaFunil.QUALIFICACAO
+        etapa_atual = etapa_funil or models.EtapaFunil.QUALIFICACAO
 
         orientacao_estagio = ORIENTACOES_POR_ESTAGIO.get(etapa_atual, "Conduza a conversa de forma consultiva e empática.")
         ficha_formatada = ficha_resumo.strip() if ficha_resumo else "Primeiro contato, ainda sem dados acumulados."
@@ -126,8 +106,14 @@ Objetivo Desta Etapa: {orientacao_estagio}
         return conteudo
 
     except Exception as e:
-        logger.error(f"[VENDEDOR ERRO] ❌ Falha na geração da resposta comercial: {e}", exc_info=True)
-        return "Opa, deu uma oscilação na conexão aqui comigo! Você poderia me mandar de novo, por gentileza?"
+        err_str = str(e).lower()
+        if "insufficient_quota" in err_str or "credit_balance_exhausted" in err_str or "no credits remaining" in err_str:
+            logger.critical(
+                f"[OPENAI COTA ESGOTADA] 🚨 Créditos da OpenAI esgotados! Silenciando IA para evitar envio de mensagens confusas ao cliente: {e}"
+            )
+        else:
+            logger.error(f"[VENDEDOR ERRO] ❌ Falha na geração da resposta comercial: {e}", exc_info=True)
+        return None
 
 
 async def gerar_mensagem_followup(
@@ -136,7 +122,7 @@ async def gerar_mensagem_followup(
     etapa_funil: models.EtapaFunil,
     tentativa: int,
     historico_recente: Optional[List[models.Interacao]] = None
-) -> str:
+) -> Optional[str]:
     """
     Gera mensagem de resgate/follow-up proativa e humanizada do Vendedor ('Seu Zé')
     conforme a tentativa na cadência (1, 2 ou 3) e o histórico prévio.
@@ -147,15 +133,11 @@ async def gerar_mensagem_followup(
     try:
         historico_lista = list(historico_recente) if historico_recente else []
         nome_validado = higienizar_nome_perfil(nome_cliente_bruto)
+        # Identificação de nome de perfil do WhatsApp
         if nome_validado:
-            primeiro_nome = nome_validado.split()[0]
-            instrucao_nome = (
-                f"\n[TRATAMENTO]: O nome informado no perfil é '{nome_validado}'. "
-                f"Se parecer o nome real de uma pessoa, chame-o pelo primeiro nome ({primeiro_nome}) com simpatia. "
-                "Se for o nome de uma loja, empresa, frase ou versículo, use uma saudação acolhedora sem chamá-lo por esse termo."
-            )
+            instrucao_nome = f"\n[NOME_NO_PERFIL]: {nome_validado}"
         else:
-            instrucao_nome = "\n[TRATAMENTO]: O nome exato não foi identificado. Use saudação acolhedora e educada."
+            instrucao_nome = "\n[NOME_NO_PERFIL]: Não informado no perfil do WhatsApp."
 
         diretriz_tentativa = ORIENTACOES_FOLLOWUP.get(
             tentativa,
@@ -210,10 +192,11 @@ INSTRUÇÕES CRÍTICAS DE CADÊNCIA:
         return conteudo
 
     except Exception as e:
-        logger.error(f"[FOLLOWUP VENDEDOR ERRO] ❌ Falha ao gerar mensagem de follow-up: {e}", exc_info=True)
-        if tentativa == 1:
-            return "Olá! Tudo bem por aí? Só passando para ver se você conseguiu ver a mensagem anterior e se posso ajudar em algo!"
-        elif tentativa == 2:
-            return "Olá! Espero que esteja tendo uma ótima semana. Conseguiu pensar naqueles pontos que conversamos? Qualquer dúvida, sigo por aqui!"
+        err_str = str(e).lower()
+        if "insufficient_quota" in err_str or "credit_balance_exhausted" in err_str or "no credits remaining" in err_str:
+            logger.critical(
+                f"[OPENAI COTA ESGOTADA - FOLLOWUP] 🚨 Créditos da OpenAI esgotados! Silenciando follow-up: {e}"
+            )
         else:
-            return "Olá! Imagino que a rotina esteja corrida por aí. Vou deixar o contato pausado para não incomodar, mas sigo à sua inteira disposição quando quiser retomar! Um abraço."
+            logger.error(f"[FOLLOWUP VENDEDOR ERRO] ❌ Falha ao gerar mensagem de follow-up: {e}", exc_info=True)
+        return None

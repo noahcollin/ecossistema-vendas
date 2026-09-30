@@ -35,8 +35,8 @@ async def test_reset_and_out_of_scope():
         lead = models.Lead(
             nome="João Teste",
             telefone=tel,
-            status=models.LeadStatus.QUALIFICACAO,
-            resumo_perfil="Perfil antigo: cliente interessado em energia solar.",
+            etapa_funil=models.EtapaFunil.QUALIFICACAO,
+            resumo_perfil="Perfil antigo: cliente interessado em inteligência artificial.",
             dados_qualificacao={"consumo_estimado_reais": 1200.0}
         )
         db.add(lead)
@@ -53,7 +53,7 @@ async def test_reset_and_out_of_scope():
 
         # Simula a lógica de reset do endpoint /leads/{lead_id}/interacoes
         await db.execute(delete(models.Interacao).where(models.Interacao.lead_id == lead.id))
-        lead.status = models.LeadStatus.NOVO
+        lead.etapa_funil = models.EtapaFunil.NOVO_CONTATO
         lead.resumo_perfil = None
         lead.dados_qualificacao = None
         await db.commit()
@@ -61,7 +61,7 @@ async def test_reset_and_out_of_scope():
 
         assert lead.resumo_perfil is None, "Falha: resumo_perfil deveria ser None após reset!"
         assert lead.dados_qualificacao is None, "Falha: dados_qualificacao deveria ser None após reset!"
-        assert lead.status == models.LeadStatus.NOVO, "Falha: status deveria ser NOVO_LEAD!"
+        assert lead.etapa_funil == models.EtapaFunil.NOVO_CONTATO, "Falha: etapa_funil deveria ser NOVO_CONTATO!"
         print("✅ [TESTE 1 PASSOU]: Reset de memória e histórico limpa resumo_perfil e dados_qualificacao com sucesso!")
 
         # 2. Teste Out-of-Scope: Cliente pedindo Fusca
@@ -86,13 +86,13 @@ async def test_reset_and_out_of_scope():
         lead.dados_qualificacao = analise.dados_qualificacao.model_dump()
         await db.commit()
 
-        print(f"📊 [ANALISTA FSM]: Status={analise.status_sugerido.value}")
+        print(f"📊 [ANALISTA FSM]: Etapa={analise.etapa_sugerida.value}")
         print(f"   Ficha do Lead:\n   {lead.resumo_perfil}")
 
         resposta_closer = await gerar_resposta_vendedor(
             nome_cliente_bruto=lead.nome,
             ficha_resumo=lead.resumo_perfil,
-            status_funil=analise.status_sugerido,
+            etapa_funil=analise.etapa_sugerida,
             historico_recente=[interacao_fusca]
         )
         print(f"\n🤠 [SEU ZÉ - Resposta Fora de Escopo]:\n{resposta_closer}\n")

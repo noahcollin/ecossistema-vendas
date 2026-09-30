@@ -262,6 +262,45 @@ class InboundService:
             historico_recente=historico_recente
         )
 
+        # 🛑 BLINDAGEM OPERACIONAL: SE A IA NÃO FORMULOU RESPOSTA (Ex: Créditos OpenAI esgotados ou erro)
+        # NUNCA envia mensagens desconexas ao cliente real. Silencia a IA e escala para atendimento humano!
+        if not resposta_ia or not resposta_ia.strip():
+            logger.critical(
+                f"[IA SILENCIADA] 🛑 Nenhuma resposta gerada pela IA para {telefone} "
+                f"(créditos esgotados ou falha técnica). Silenciando envio e acionando transbordo humano."
+            )
+            lead = await LeadRepository.recarregar_lead(db, lead.id) or lead
+            LeadRepository.sincronizar_tags(lead, adicionar=["REQUER_ATENCAO", "SEM_CREDITO_OPENAI"])
+            lead.controle = models.ControleAtendimento.TRANSBORDO_SOLICITADO
+            await db.commit()
+
+            # Registra no histórico como nota interna de sistema
+            await LeadRepository.add_interaction(
+                db=db,
+                lead_id=lead.id,
+                origem=models.InteracaoOrigem.SISTEMA,
+                texto="[ALERTA OPERACIONAL]: Créditos da OpenAI esgotados ou indisponibilidade da IA. "
+                      "A IA foi silenciada para preservar a experiência do cliente. Atendimento transferido para a equipe humana."
+            )
+
+            # Notifica supervisor / equipe humana
+            motivo_alerta = "Créditos da OpenAI esgotados / Falha na IA. Cliente aguarda resposta humana."
+            asyncio.create_task(
+                TransbordoService.notificar_equipe(
+                    lead=lead,
+                    motivo=motivo_alerta,
+                    analise=analise
+                )
+            )
+
+            # Registra alerta operacional no Redis para monitoramento e dashboards
+            try:
+                from integrations.redis.buffer import redis_client
+                await redis_client.set("alerta_sistema:openai_sem_creditos", "1", ex=86400)
+            except Exception:
+                pass
+            return
+
         # 🛡️ GUARDA PRÉ-DISPARO (ANTI-COLISÃO EM VOO):
         # Enquanto a IA formulava a resposta (latência de LLM), um atendente humano
         # pode ter assumido a conversa no WhatsApp Web ou o lead pode ter solicitado opt-out.

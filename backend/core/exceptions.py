@@ -56,6 +56,11 @@ class ExternalGatewayError(InfrastructureException):
     pass
 
 
+class OpenAIQuotaExhaustedError(ExternalGatewayError):
+    """Lançada quando a cota/créditos da OpenAI estão esgotados (HTTP 429 insufficient_quota)."""
+    pass
+
+
 # ----------------- EXCEÇÕES DE SEGURANÇA -----------------
 
 class SecurityException(AppException):

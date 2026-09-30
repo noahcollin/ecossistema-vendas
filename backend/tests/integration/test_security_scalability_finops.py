@@ -23,7 +23,10 @@ from core.config import settings
 from core.database import engine
 import models
 from agents import gerar_resposta_vendedor, PROMPT_BASE_VENDEDOR, PROMPT_SISTEMA_ANALISTA
-from api.routers.webhook import SEMAFORO_CONCORRENCIA_IA, router
+from api.routers.webhook import router
+from services.inbound_service import InboundService
+
+SEMAFORO_CONCORRENCIA_IA = InboundService.SEMAFORO_CONCORRENCIA_IA
 from main import app
 
 async def test_1_webhook_security_authentication():
@@ -31,59 +34,64 @@ async def test_1_webhook_security_authentication():
     
     token_teste = "segredo_super_secreto_inteligentte_xyz"
     
-    # 1. Simula token ativado no settings
+    # 1. Simula token ativado no settings e isola whitelist para teste
     token_original = settings.WEBHOOK_SECRET_TOKEN
+    whitelist_original = settings.WHITELIST_PHONE_SUFFIX
     settings.WEBHOOK_SECRET_TOKEN = token_teste
+    settings.WHITELIST_PHONE_SUFFIX = "0000"
     
     payload_valido = {
-        "chat": {"phone": "+5583991923098", "name": "Cliente Teste", "isGroup": False},
+        "chat": {"phone": "+5583999990000", "name": "Cliente Teste", "isGroup": False},
         "message": {"text": "Olá!", "fromMe": False}
     }
 
     try:
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            
-            # A: Sem token -> Deve retornar 401 Unauthorized
-            resp_sem_token = await client.post("/webhook/uazapi", json=payload_valido)
-            assert resp_sem_token.status_code == 401, f"Deveria ser 401, retornou {resp_sem_token.status_code}"
-            assert "Acesso não autorizado" in resp_sem_token.text
-            print("   • Requisição sem token: Rejeitada com HTTP 401 Unauthorized (Correto)")
+        from unittest.mock import patch, AsyncMock
+        with patch("services.inbound_service.InboundService.processar_debounce", new_callable=AsyncMock):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                
+                # A: Sem token -> Deve retornar 401 Unauthorized
+                resp_sem_token = await client.post("/webhook/uazapi", json=payload_valido)
+                assert resp_sem_token.status_code == 401, f"Deveria ser 401, retornou {resp_sem_token.status_code}"
+                assert "Acesso não autorizado" in resp_sem_token.text
+                print("   • Requisição sem token: Rejeitada com HTTP 401 Unauthorized (Correto)")
 
-            # B: Token incorreto no Header -> Deve retornar 401
-            resp_token_invalido = await client.post(
-                "/webhook/uazapi",
-                headers={"X-Webhook-Secret": "token_falso_errado"},
-                json=payload_valido
-            )
-            assert resp_token_invalido.status_code == 401
-            print("   • Requisição com token incorreto: Rejeitada com HTTP 401 Unauthorized (Correto)")
+                # B: Token incorreto no Header -> Deve retornar 401
+                resp_token_invalido = await client.post(
+                    "/webhook/uazapi",
+                    headers={"X-Webhook-Secret": "token_falso_errado"},
+                    json=payload_valido
+                )
+                assert resp_token_invalido.status_code == 401
+                print("   • Requisição com token incorreto: Rejeitada com HTTP 401 Unauthorized (Correto)")
 
-            # C: Token correto no Header X-Webhook-Secret -> Deve retornar 200
-            resp_header_valido = await client.post(
-                "/webhook/uazapi",
-                headers={"X-Webhook-Secret": token_teste},
-                json=payload_valido
-            )
-            assert resp_header_valido.status_code == 200, f"Falhou com {resp_header_valido.status_code}: {resp_header_valido.text}"
-            print("   • Requisição com X-Webhook-Secret válido: Aceita com HTTP 200 OK")
+                # C: Token correto no Header X-Webhook-Secret -> Deve retornar 200
+                resp_header_valido = await client.post(
+                    "/webhook/uazapi",
+                    headers={"X-Webhook-Secret": token_teste},
+                    json=payload_valido
+                )
+                assert resp_header_valido.status_code == 200, f"Falhou com {resp_header_valido.status_code}: {resp_header_valido.text}"
+                print("   • Requisição com X-Webhook-Secret válido: Aceita com HTTP 200 OK")
 
-            # D: Token correto via Query Param (?secret=...) -> Deve retornar 200
-            resp_query_valido = await client.post(
-                f"/webhook/whatsapp?secret={token_teste}",
-                json=payload_valido
-            )
-            assert resp_query_valido.status_code == 200
-            print("   • Requisição com ?secret= válido no alias /webhook/whatsapp: Aceita com HTTP 200 OK")
+                # D: Token correto via Query Param (?secret=...) -> Deve retornar 200
+                resp_query_valido = await client.post(
+                    f"/webhook/whatsapp?secret={token_teste}",
+                    json=payload_valido
+                )
+                assert resp_query_valido.status_code == 200
+                print("   • Requisição com ?secret= válido no alias /webhook/whatsapp: Aceita com HTTP 200 OK")
 
-            # E: Retrocompatibilidade (token desativado / vazio) -> Deve permitir
-            settings.WEBHOOK_SECRET_TOKEN = ""
-            resp_livre = await client.post("/webhook/uazapi", json=payload_valido)
-            assert resp_livre.status_code == 200
-            print("   • Retrocompatibilidade com token desativado: Aceita livremente com HTTP 200 OK")
+                # E: Retrocompatibilidade (token desativado / vazio) -> Deve permitir
+                settings.WEBHOOK_SECRET_TOKEN = ""
+                resp_livre = await client.post("/webhook/uazapi", json=payload_valido)
+                assert resp_livre.status_code == 200
+                print("   • Retrocompatibilidade com token desativado: Aceita livremente com HTTP 200 OK")
 
     finally:
         settings.WEBHOOK_SECRET_TOKEN = token_original
+        settings.WHITELIST_PHONE_SUFFIX = whitelist_original
 
     print("✅ Autenticação e segurança do Webhook validadas com sucesso!")
 

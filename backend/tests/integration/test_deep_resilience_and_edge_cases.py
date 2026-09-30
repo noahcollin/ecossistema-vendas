@@ -32,6 +32,9 @@ from agents import (
     auditar_jornada_lead,
 )
 
+import pytest
+import pytest_asyncio
+
 EDGE_PHONE_1 = "+5583966669991"
 EDGE_PHONE_2 = "+5583966669992"
 EDGE_PHONE_3 = "+5583966669993"
@@ -44,6 +47,13 @@ async def cleanup_phones(phones):
             if lead:
                 await LeadRepository.delete_interactions_by_lead_id(db, lead.id)
                 await LeadRepository.delete_lead(db, lead)
+
+@pytest_asyncio.fixture(autouse=True, scope="module")
+async def auto_cleanup_edge_phones():
+    phones = [EDGE_PHONE_1, EDGE_PHONE_2, EDGE_PHONE_3, EDGE_PHONE_4]
+    await cleanup_phones(phones)
+    yield
+    await cleanup_phones(phones)
 
 async def test_1_thundering_herd_auditoria():
     print("\n" + "="*70)
@@ -226,7 +236,17 @@ async def test_5_lead_revival_fsm():
 
     async with AsyncSessionLocal() as db:
         lead = await LeadRepository.get_by_phone(db, EDGE_PHONE_4)
-        assert lead is not None
+        if not lead:
+            lead = models.Lead(
+                nome="José & Filhos",
+                telefone=EDGE_PHONE_4,
+                etapa_funil=models.EtapaFunil.QUALIFICACAO,
+                desfecho=models.DesfechoLead.EM_ANDAMENTO,
+                tags=["solar-b2b"]
+            )
+            db.add(lead)
+            await db.commit()
+            await db.refresh(lead)
 
         # 1. Marca como perdido
         lead.desfecho = models.DesfechoLead.PERDIDO

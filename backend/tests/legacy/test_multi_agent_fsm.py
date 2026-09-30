@@ -33,8 +33,7 @@ async def run_fsm_integration_test():
             telefone=telefone_teste,
             etapa_funil=models.EtapaFunil.NOVO_CONTATO,
             desfecho=models.DesfechoLead.EM_ANDAMENTO,
-            temperatura=models.TemperaturaLead.MORNO,
-            status=models.LeadStatus.NOVO
+            temperatura=models.TemperaturaLead.MORNO
         )
         db.add(lead)
         await db.commit()

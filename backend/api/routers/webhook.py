@@ -14,9 +14,6 @@ import schemas
 
 router = APIRouter(prefix="/webhook", tags=["Webhook (Uazapi)"])
 
-# Retrocompatibilidade de exportação para testes e outros módulos
-SEMAFORO_CONCORRENCIA_IA = InboundService.SEMAFORO_CONCORRENCIA_IA
-
 
 
 import hmac

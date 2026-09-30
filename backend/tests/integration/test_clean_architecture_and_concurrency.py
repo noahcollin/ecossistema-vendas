@@ -62,7 +62,7 @@ async def test_lead_repository():
             await LeadRepository.delete_lead(db, existente)
             
         # Create
-        lead = await LeadRepository.create(db, telefone=tel, nome="Cliente Repo", status=models.LeadStatus.NOVO)
+        lead = await LeadRepository.create(db, telefone=tel, nome="Cliente Repo")
         assert lead.id is not None
         assert lead.nome == "Cliente Repo"
         
@@ -107,7 +107,7 @@ async def test_lead_service_and_safety():
             await LeadRepository.delete_lead(db, existente)
         
         # 1. Criação via serviço
-        lead_in = schemas.LeadCreate(nome="Lead Servico", telefone=tel, status=models.LeadStatus.QUALIFICACAO)
+        lead_in = schemas.LeadCreate(nome="Lead Servico", telefone=tel, etapa_funil=models.EtapaFunil.QUALIFICACAO)
         lead = await LeadService.criar_lead(db, lead_in)
         assert lead.id is not None
         
@@ -120,10 +120,10 @@ async def test_lead_service_and_safety():
         # 3. Limpar histórico
         reset_res = await LeadService.limpar_historico_conversa(db, lead.id)
         assert reset_res["status"] == "historico_limpo"
-        assert reset_res["novo_status"] == "NOVO_LEAD"
+        assert reset_res["etapa_funil"] == models.EtapaFunil.NOVO_CONTATO.value
         
         lead_atualizado = await LeadRepository.get_by_id(db, lead.id)
-        assert lead_atualizado.status == models.LeadStatus.NOVO
+        assert lead_atualizado.etapa_funil == models.EtapaFunil.NOVO_CONTATO
         assert lead_atualizado.resumo_perfil is None
         assert lead_atualizado.dados_qualificacao is None
         
@@ -155,7 +155,7 @@ async def test_schemas_pydantic_v2():
     lead_resp = schemas.LeadResponse(
         id=1,
         telefone="+5583999999999",
-        status=models.LeadStatus.NOVO,
+        etapa_funil=models.EtapaFunil.NOVO_CONTATO,
         dados_qualificacao={"cidade": "João Pessoa", "consumo_estimado_reais": 800.0}
     )
     assert lead_resp.id == 1

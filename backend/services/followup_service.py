@@ -124,59 +124,78 @@ class FollowupService:
             )
             return False
 
-        lead = await LeadRepository.get_by_id(db, f_item.lead_id)
-        if not lead or lead.opt_out or lead.desfecho != models.DesfechoLead.EM_ANDAMENTO or lead.controle != models.ControleAtendimento.PILOTO_IA:
-            await FollowupRepository.atualizar_status(db, f_item, models.StatusFollowup.ABORTADO)
-            return False
+        try:
+            lead = await LeadRepository.get_by_id(db, f_item.lead_id)
+            if not lead or lead.opt_out or lead.desfecho != models.DesfechoLead.EM_ANDAMENTO or lead.controle != models.ControleAtendimento.PILOTO_IA:
+                await FollowupRepository.atualizar_status(db, f_item, models.StatusFollowup.ABORTADO)
+                return False
 
-        # 🛡️ GUARDA DE MENSAGENS ATIVAS NO BUFFER DO REDIS:
-        # Se o cliente acabou de enviar mensagens que ainda estão no buffer de debounce,
-        # aborta o follow-up imediatamente para não parecer incoerente ("Oi, sumiu?").
-        qtd_buffer = await redis_client.llen(f"buffer:{lead.telefone}")
-        if qtd_buffer > 0:
-            logger.info(
-                f"[CADENCIA CANCELADA] 🛑 Lead {lead.telefone} possui {qtd_buffer} mensagem(ns) no buffer do Redis (em debounce). "
-                f"Cancelando follow-up por resposta ativa do cliente."
+            # 🛡️ GUARDA DE MENSAGENS ATIVAS NO BUFFER DO REDIS:
+            # Se o cliente acabou de enviar mensagens que ainda estão no buffer de debounce,
+            # aborta o follow-up imediatamente para não parecer incoerente ("Oi, sumiu?").
+            qtd_buffer = await redis_client.llen(f"buffer:{lead.telefone}")
+            if qtd_buffer > 0:
+                logger.info(
+                    f"[CADENCIA CANCELADA] 🛑 Lead {lead.telefone} possui {qtd_buffer} mensagem(ns) no buffer do Redis (em debounce). "
+                    f"Cancelando follow-up por resposta ativa do cliente."
+                )
+                await FollowupRepository.atualizar_status(db, f_item, models.StatusFollowup.CANCELADO_POR_RESPOSTA)
+                return False
+
+            historico = await LeadRepository.get_recent_interactions(
+                db=db,
+                lead_id=lead.id,
+                limit=settings.JANELA_HISTORICO_RECENTE
             )
-            await FollowupRepository.atualizar_status(db, f_item, models.StatusFollowup.CANCELADO_POR_RESPOSTA)
-            return False
 
-        historico = await LeadRepository.get_recent_interactions(
-            db=db,
-            lead_id=lead.id,
-            limit=settings.JANELA_HISTORICO_RECENTE
-        )
+            texto_msg = await gerar_mensagem_followup(
+                nome_cliente_bruto=lead.nome or "Cliente",
+                ficha_resumo=lead.resumo_perfil,
+                etapa_funil=f_item.etapa_funil,
+                tentativa=f_item.tentativa,
+                historico_recente=historico
+            )
 
-        texto_msg = await gerar_mensagem_followup(
-            nome_cliente_bruto=lead.nome or "Cliente",
-            ficha_resumo=lead.resumo_perfil,
-            etapa_funil=f_item.etapa_funil,
-            tentativa=f_item.tentativa,
-            historico_recente=historico
-        )
+            if not texto_msg or not texto_msg.strip():
+                logger.critical(
+                    f"[CADENCIA SILENCIADA] 🚨 Follow-up para lead {lead.telefone} não gerou mensagem (créditos OpenAI ou falha de IA). "
+                    f"Abortando follow-up ID {f_item.id} e silenciando disparos automáticos."
+                )
+                await FollowupRepository.atualizar_status(db, f_item, models.StatusFollowup.ABORTADO)
+                try:
+                    await redis_client.set("alerta_sistema:openai_sem_creditos", "1", ex=86400)
+                except Exception as r_err:
+                    logger.warning(f"[CADENCIA REDIS] Falha ao registrar alerta no Redis: {r_err}")
+                return False
 
-        # Disparo humanizado em múltiplos balões com digitação (SRP / DRY)
-        baloes_enviados, sucesso = await cls.whatsapp_gateway.enviar_mensagem_humanizada(
-            telefone=lead.telefone,
-            texto_bruto=texto_msg,
-            delay_base_ms=1000,
-            simular_digitacao=settings.FOLLOWUP_SIMULAR_DIGITACAO
-        )
-        if not sucesso:
-            logger.error(f"[CADENCIA ERRO] ❌ Falha no envio WhatsApp para {lead.telefone}")
-            return False
+            # Disparo humanizado em múltiplos balões com digitação (SRP / DRY)
+            baloes_enviados, sucesso = await cls.whatsapp_gateway.enviar_mensagem_humanizada(
+                telefone=lead.telefone,
+                texto_bruto=texto_msg,
+                delay_base_ms=1000,
+                simular_digitacao=settings.FOLLOWUP_SIMULAR_DIGITACAO
+            )
+            if not sucesso:
+                logger.error(
+                    f"[CADENCIA ERRO] ❌ Falha no envio WhatsApp para {lead.telefone}. "
+                    f"Abortando follow-up ID {f_item.id} para evitar loops de repetição."
+                )
+                await FollowupRepository.atualizar_status(db, f_item, models.StatusFollowup.ABORTADO)
+                return False
 
-        # Registra interação de IA no histórico de forma limpa (sem |||)
-        texto_historico = "\n\n".join(baloes_enviados) if baloes_enviados else texto_msg
-        await LeadRepository.add_interaction(db=db, lead_id=lead.id, origem=models.InteracaoOrigem.IA, texto=texto_historico)
-        await FollowupRepository.marcar_como_disparado(db, f_item, texto_historico)
+            # Registra interação de IA no histórico de forma limpa (sem |||)
+            texto_historico = "\n\n".join(baloes_enviados) if baloes_enviados else texto_msg
+            await LeadRepository.add_interaction(db=db, lead_id=lead.id, origem=models.InteracaoOrigem.IA, texto=texto_historico)
+            await FollowupRepository.marcar_como_disparado(db, f_item, texto_historico)
 
-        logger.info(
-            f"[CADENCIA] 🚀 Toque {f_item.tentativa}/3 disparado com sucesso para {lead.telefone} "
-            f"({len(baloes_enviados)} balão(ões))!"
-        )
-        await cls.agendar_proximo_followup(db, lead)
-        return True
+            logger.info(
+                f"[CADENCIA] 🚀 Toque {f_item.tentativa}/3 disparado com sucesso para {lead.telefone} "
+                f"({len(baloes_enviados)} balão(ões))!"
+            )
+            await cls.agendar_proximo_followup(db, lead)
+            return True
+        finally:
+            await redis_client.delete(chave_lock)
 
     @classmethod
     async def processar_lote_followups(cls, db: AsyncSession) -> int:

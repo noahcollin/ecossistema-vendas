@@ -27,8 +27,7 @@ class LeadService:
             origem_canal=lead_in.origem_canal,
             etapa_funil=lead_in.etapa_funil,
             desfecho=lead_in.desfecho,
-            valor_estimado=lead_in.valor_estimado,
-            status=lead_in.status
+            valor_estimado=lead_in.valor_estimado
         )
         logger.info(f"[LEADS SERVICE] Lead criado: {novo_lead.nome} ({novo_lead.telefone})")
         return novo_lead
@@ -78,7 +77,6 @@ class LeadService:
         lead.valor_estimado = None
         lead.tags = []
         lead.opt_out = False
-        lead.status = models.LeadStatus.NOVO
         lead.resumo_perfil = None
         lead.dados_qualificacao = None
         lead.dossie_comercial = None
@@ -94,7 +92,6 @@ class LeadService:
             "lead_id": lead_id,
             "etapa_funil": models.EtapaFunil.NOVO_CONTATO.value,
             "desfecho": models.DesfechoLead.EM_ANDAMENTO.value,
-            "novo_status": "NOVO_LEAD",
             "memoria_resetada": True
         }
 

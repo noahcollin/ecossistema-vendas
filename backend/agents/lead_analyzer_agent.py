@@ -106,20 +106,31 @@ Com base nas informações acima e na nova interação do cliente, atualize a Fi
         return resultado
 
     except Exception as e:
-        logger.error(f"[ANALISTA LEAD ERRO] Falha ao analisar lead {lead.telefone}: {e}", exc_info=True)
+        err_str = str(e).lower()
+        cota_esgotada = "insufficient_quota" in err_str or "credit_balance_exhausted" in err_str or "no credits remaining" in err_str
+        tags_fallback = list(getattr(lead, "tags", []) or [])
+        if cota_esgotada:
+            logger.critical(f"[ANALISTA LEAD - COTA ESGOTADA] 🚨 Falha por esgotamento de créditos da OpenAI para {lead.telefone}: {e}")
+            if "SEM_CREDITO_OPENAI" not in tags_fallback:
+                tags_fallback.append("SEM_CREDITO_OPENAI")
+            if "REQUER_ATENCAO" not in tags_fallback:
+                tags_fallback.append("REQUER_ATENCAO")
+        else:
+            logger.error(f"[ANALISTA LEAD ERRO] Falha ao analisar lead {lead.telefone}: {e}", exc_info=True)
+
         # Fallback resiliente: mantém os estados atuais e adiciona nota ao perfil
         dados_fallback = schemas.DadosQualificacao(**(lead.dados_qualificacao or {})) if isinstance(lead.dados_qualificacao, dict) else schemas.DadosQualificacao()
         return schemas.LeadAnalysisOutput(
             resumo_perfil=lead.resumo_perfil or f"Lead em atendimento ({lead.nome or 'Contato'}).",
             etapa_sugerida=getattr(lead, "etapa_funil", models.EtapaFunil.QUALIFICACAO) or models.EtapaFunil.QUALIFICACAO,
             desfecho_sugerido=getattr(lead, "desfecho", models.DesfechoLead.EM_ANDAMENTO) or models.DesfechoLead.EM_ANDAMENTO,
-            transbordo_sugerido=False,
+            transbordo_sugerido=True if cota_esgotada else False,
             temperatura_sugerida=getattr(lead, "temperatura", models.TemperaturaLead.FRIO) or models.TemperaturaLead.FRIO,
             motivo_perda=getattr(lead, "motivo_perda", None),
             valor_estimado=getattr(lead, "valor_estimado", None),
-            tags_sugeridas=getattr(lead, "tags", []) or [],
+            tags_sugeridas=tags_fallback,
             opt_out_detectado=getattr(lead, "opt_out", False) or False,
-            justificativa=f"Fallback automático por falha técnica na análise: {str(e)}",
+            justificativa="Créditos da OpenAI esgotados. Transbordo acionado." if cota_esgotada else f"Fallback automático por falha técnica na análise: {str(e)}",
             dados_qualificacao=dados_fallback
         )
 

@@ -63,8 +63,7 @@ class LeadRepository:
         controle: Optional[models.ControleAtendimento] = models.ControleAtendimento.PILOTO_IA,
         temperatura: Optional[models.TemperaturaLead] = models.TemperaturaLead.FRIO,
         valor_estimado: Optional[float] = None,
-        tags: Optional[List[str]] = None,
-        status: Optional[Any] = None
+        tags: Optional[List[str]] = None
     ) -> models.Lead:
         """Cria e persiste um novo Lead com as 4 dimensões de vendas e canal de aquisição."""
         novo_lead = models.Lead(
@@ -78,8 +77,7 @@ class LeadRepository:
             temperatura=temperatura or models.TemperaturaLead.FRIO,
             valor_estimado=valor_estimado,
             tags=tags or [],
-            opt_out=False,
-            status=status or models.LeadStatus.NOVO
+            opt_out=False
         )
         try:
             db.add(novo_lead)

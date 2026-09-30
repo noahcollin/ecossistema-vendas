@@ -109,9 +109,20 @@ async def health_check(response: Response):
         saude["componentes"]["redis"] = f"erro: {str(e)}"
         saude["status"] = "degraded"
 
-    # 3. Checa Chaves de Serviços Externos
+    # 3. Checa Chaves de Serviços Externos e Alertas Operacionais
     saude["componentes"]["uazapi_token"] = bool(settings.UAZAPI_TOKEN)
     saude["componentes"]["openai_key"] = bool(settings.OPENAI_API_KEY)
+
+    try:
+        alerta_cota = await redis_client.get("alerta_sistema:openai_sem_creditos")
+        if alerta_cota:
+            saude["componentes"]["openai_creditos"] = "esgotado"
+            saude["alerta_operacional"] = "Créditos da OpenAI esgotados! Leads recebidos foram direcionados ao transbordo humano sem disparos automáticos."
+            saude["status"] = "degraded"
+        else:
+            saude["componentes"]["openai_creditos"] = "operante"
+    except Exception:
+        pass
 
     if not saude["componentes"]["uazapi_token"] or not saude["componentes"]["openai_key"]:
         saude["status"] = "degraded"

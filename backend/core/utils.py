@@ -70,8 +70,7 @@ def mascarar_nome(nome_bruto: str | None) -> str:
 
 def dividir_mensagens_whatsapp(
     texto: str | None,
-    max_baloes: int = 5,
-    limite_caracteres_balao: int = 200
+    max_baloes: int = 5
 ) -> list[str]:
     """
     Divide uma resposta comercial em múltiplos balões para o WhatsApp.

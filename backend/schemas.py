@@ -2,7 +2,6 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, Any, Union
 from models import (
-    LeadStatus,
     EtapaFunil,
     DesfechoLead,
     ControleAtendimento,
@@ -37,7 +36,6 @@ class LeadCreate(BaseModel):
     etapa_funil: Optional[EtapaFunil] = EtapaFunil.NOVO_CONTATO
     desfecho: Optional[DesfechoLead] = DesfechoLead.EM_ANDAMENTO
     valor_estimado: Optional[float] = None
-    status: Optional[LeadStatus] = LeadStatus.NOVO
 
 # Esquema completo de retorno com as 4 dimensões desacopladas
 class LeadResponse(BaseModel):
@@ -67,9 +65,6 @@ class LeadResponse(BaseModel):
     resumo_perfil: Optional[str] = None
     dados_qualificacao: Optional[Union[DadosQualificacao, dict[str, Any]]] = None
     dossie_comercial: Optional[Union[dict[str, Any], Any]] = None
-    
-    # Campo legado mantido temporariamente
-    status: Optional[LeadStatus] = None
 
 
 # ----------------- ESQUEMA DE SAÍDA ESTRUTURADA DO AGENTE ANALISTA -----------------
