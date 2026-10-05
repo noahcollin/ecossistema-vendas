@@ -125,7 +125,7 @@ class FollowupService:
             return False
 
         try:
-            lead = await LeadRepository.get_by_id(db, f_item.lead_id)
+            lead = f_item.lead if (hasattr(f_item, "lead") and f_item.lead is not None) else await LeadRepository.get_by_id(db, f_item.lead_id)
             if not lead or lead.opt_out or lead.desfecho != models.DesfechoLead.EM_ANDAMENTO or lead.controle != models.ControleAtendimento.PILOTO_IA:
                 await FollowupRepository.atualizar_status(db, f_item, models.StatusFollowup.ABORTADO)
                 return False
@@ -203,7 +203,7 @@ class FollowupService:
         if not settings.FOLLOWUP_ENABLED:
             return 0
 
-        vencidos = await FollowupRepository.obter_vencidos_pendentes(db, limite=20)
+        vencidos = await FollowupRepository.obter_vencidos_pendentes(db, limite=20, carregar_lead=True)
         if not vencidos:
             return 0
 

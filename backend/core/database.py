@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 from core.config import settings
 
 # Cria o 'Motor' de conexão com o PostgreSQL de forma assíncrona com pool dimensionado para alta concorrência
@@ -16,8 +16,9 @@ engine = create_async_engine(
 # Cria a fábrica de 'Sessões' (cada sessão é uma conversa separada com o banco)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
-# Cria a classe Base, que será a "mãe" de todas as nossas tabelas
-Base = declarative_base()
+# Cria a classe Base no padrão moderno do SQLAlchemy 2.0
+class Base(DeclarativeBase):
+    pass
 
 # Função para pegarmos uma sessão do banco sempre que precisarmos (Injeção de Dependência)
 async def get_db():

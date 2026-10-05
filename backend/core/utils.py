@@ -4,7 +4,6 @@ Contém funções auxiliares de tratamento de dados, higienização e validaçã
 """
 
 import re
-from core.logger import logger
 
 def higienizar_nome_perfil(nome_bruto: str | None) -> str | None:
     """

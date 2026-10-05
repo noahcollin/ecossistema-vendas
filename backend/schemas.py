@@ -8,7 +8,6 @@ from models import (
     TemperaturaLead,
     TipoEntradaLead,
     StatusFollowup,
-    InteracaoOrigem
 )
 
 # ----------------- ESQUEMAS DO LEAD -----------------
@@ -21,11 +20,9 @@ class DadosQualificacao(BaseModel):
     solucao_interesse: Optional[str] = None  # ex: AGENTES_AUTONOMOS, CHAT_INTELIGENTTE, DEMAND_AI
     gargalo_principal: Optional[str] = None  # ex: demora no retorno, atendimento 24/7, múltiplos atendentes
     tamanho_equipe: Optional[str] = None  # ex: 1-5, 6-15, 15+
-    tipo_imovel: Optional[str] = None
     detalhes: Optional[str] = None
     objecoes_detectadas: list[str] = Field(default_factory=list)
     dados_cadastrais: Optional[str] = None
-    consumo_estimado_reais: Optional[float] = None
 
 # Esquema para quando o cliente nos envia dados (não exigimos ID, é automático)
 class LeadCreate(BaseModel):
@@ -65,6 +62,17 @@ class LeadResponse(BaseModel):
     resumo_perfil: Optional[str] = None
     dados_qualificacao: Optional[Union[DadosQualificacao, dict[str, Any]]] = None
     dossie_comercial: Optional[Union[dict[str, Any], Any]] = None
+    criado_em: Optional[datetime] = None
+
+
+class InteracaoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    origem: str
+    texto: str
+    data: Optional[str] = None
+    criado_em: Optional[datetime] = None
 
 
 # ----------------- ESQUEMA DE SAÍDA ESTRUTURADA DO AGENTE ANALISTA -----------------
@@ -154,6 +162,13 @@ class MensagemHumanaManualRequest(BaseModel):
     texto: str
     atendente: Optional[str] = "Atendente"
 
+class MensagemHumanaResponse(BaseModel):
+    status: str
+    interacao_id: int
+    origem: str
+    texto: str
+    data: str
+
 class TransbordoStatusResponse(BaseModel):
     lead_id: int
     nome: Optional[str] = None
@@ -192,8 +207,4 @@ class UazapiPayload(BaseModel):
     instanceName: Optional[str] = None
     chat: Optional[UazapiChat] = None
     message: Optional[UazapiMessage] = None
-
-class TesteEnvio(BaseModel):
-    telefone: str
-    texto: str
 

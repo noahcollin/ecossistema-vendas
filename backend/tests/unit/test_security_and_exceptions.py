@@ -3,7 +3,6 @@ Testes Unitários de Segurança, Mascaramento LGPD e Exceções Customizadas.
 """
 
 import hmac
-import pytest
 from core.utils import (
     mascarar_telefone,
     mascarar_nome,

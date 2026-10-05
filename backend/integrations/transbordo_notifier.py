@@ -34,11 +34,23 @@ class TransbordoNotifier:
         nome_exibicao = lead.nome or "Não identificado"
         resumo_perfil = lead.resumo_perfil or "Sem resumo prévio registrado."
         origem = f"{lead.origem_canal or 'WHATSAPP_DIRETO'} ({getattr(lead.tipo_entrada, 'value', lead.tipo_entrada)})"
+        etapa_str = getattr(lead.etapa_funil, "value", str(lead.etapa_funil or "N/A")) if hasattr(lead, "etapa_funil") else "N/A"
+        temp_str = getattr(lead.temperatura, "value", str(lead.temperatura or "N/A")) if hasattr(lead, "temperatura") else "N/A"
+
+        motivo_lower = (motivo or "").lower()
+        is_fechamento = "fechamento" in motivo_lower or "contrato" in motivo_lower
+
+        if is_fechamento:
+            cabecalho = "🔥 *OPORTUNIDADE QUENTE: LEAD PRONTO PARA ASSINATURA DE CONTRATO* 🔥"
+            acao_necessaria = "O lead forneceu os dados para formalização. Prepare a minuta e entre em contato imediatamente para colher a assinatura e fechar a venda!"
+        else:
+            cabecalho = "🚨 *ALERTA DE TRANSBORDO HUMANO - NOVO ATENDIMENTO* 🚨"
+            acao_necessaria = "Abra a conversa no WhatsApp Web ou clique no link acima para dar sequência ao atendimento."
 
         return (
-            f"🚨 *ALERTA DE TRANSBORDO HUMANO - NOVO ATENDIMENTO* 🚨\n\n"
+            f"{cabecalho}\n\n"
             f"👤 *Cliente:* {nome_exibicao} ({lead.telefone})\n"
-            f"📊 *Etapa:* {lead.etapa_funil.value} | *Temperatura:* {lead.temperatura.value}\n"
+            f"📊 *Etapa:* {etapa_str} | *Temperatura:* {temp_str}\n"
             f"💰 *Valor Estimado:* {valor_fmt}\n"
             f"🎯 *Origem:* {origem}\n"
             f"⚠️ *Motivo do Transbordo:* {motivo}\n\n"
@@ -47,7 +59,7 @@ class TransbordoNotifier:
             f"🔗 *Link Direto WhatsApp:*\n"
             f"{link_wa}\n\n"
             f"⚡ *Ação Necessária:*\n"
-            f"Abra a conversa no WhatsApp Web ou clique no link acima para dar sequência ao atendimento."
+            f"{acao_necessaria}"
         )
 
     @classmethod
@@ -88,8 +100,8 @@ class TransbordoNotifier:
                     "lead_id": dados_lead.get("lead_id") if dados_lead else getattr(lead, "id", None),
                     "nome": dados_lead.get("nome") if dados_lead else getattr(lead, "nome", None),
                     "telefone": dados_lead.get("telefone") if dados_lead else getattr(lead, "telefone", None),
-                    "etapa_funil": dados_lead.get("etapa_funil") if dados_lead else (lead.etapa_funil.value if hasattr(lead, "etapa_funil") else None),
-                    "temperatura": dados_lead.get("temperatura") if dados_lead else (lead.temperatura.value if hasattr(lead, "temperatura") else None),
+                    "etapa_funil": dados_lead.get("etapa_funil") if dados_lead else (getattr(lead.etapa_funil, "value", str(lead.etapa_funil)) if hasattr(lead, "etapa_funil") and lead.etapa_funil else None),
+                    "temperatura": dados_lead.get("temperatura") if dados_lead else (getattr(lead.temperatura, "value", str(lead.temperatura)) if hasattr(lead, "temperatura") and lead.temperatura else None),
                     "valor_estimado": dados_lead.get("valor_estimado") if dados_lead else getattr(lead, "valor_estimado", None),
                     "motivo": motivo,
                     "resumo_perfil": dados_lead.get("resumo_perfil") if dados_lead else getattr(lead, "resumo_perfil", None),

@@ -12,7 +12,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 from core.database import AsyncSessionLocal
 import models
-import schemas
 from agents import analisar_lead_e_fsm, gerar_resposta_vendedor
 from sqlalchemy import select, delete
 
@@ -37,7 +36,7 @@ async def test_reset_and_out_of_scope():
             telefone=tel,
             etapa_funil=models.EtapaFunil.QUALIFICACAO,
             resumo_perfil="Perfil antigo: cliente interessado em inteligência artificial.",
-            dados_qualificacao={"consumo_estimado_reais": 1200.0}
+            dados_qualificacao={"segmento": "Clínica Médica", "gargalo_principal": "Demora no atendimento"}
         )
         db.add(lead)
         await db.commit()

@@ -1,8 +1,7 @@
 import asyncio
-import re
-import unicodedata
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from core.database import AsyncSessionLocal
 from core.logger import logger
 from core.config import settings
@@ -12,20 +11,23 @@ from repositories.lead_repository import LeadRepository
 from services.lead_service import LeadService
 from services.followup_service import FollowupService
 from services.transbordo_service import TransbordoService
+from services.conversation_pacing_service import ConversationPacingService
+from services.optout_guard import OptOutGuard
+from services.inbound_failover_service import InboundFailoverService
 from services.message_consolidation import MessageConsolidator, default_message_consolidator
 from integrations.uazapi.gateway import default_uazapi_gateway
 from integrations.redis.gateway import default_redis_buffer_gateway
 import agents
 import models
-import schemas
 
 
 class InboundService:
     """
     Orquestrador de Conversação Inbound (Clean Application Service).
-    Coordena o pipeline completo de entrada: debounce, normalização multimídia,
-    persistência de lead, travas de segurança, análise cognitiva e resposta do vendedor.
-    Suporta Inversão de Dependências (DIP) para testes e gateways desacoplados.
+    Segue rigorosamente os princípios SOLID:
+    - SRP: Orquestra o ciclo de vida da mensagem; delega consolidação, pacing, opt-out e failover.
+    - DIP: Injeta gateways de WhatsApp, Buffer e Consolidadores desacoplados.
+    - OCP: Políticas de pacing e modelos configuráveis via Twelve-Factor Settings.
     """
 
     # Injeção de dependências de infraestrutura (DIP) com defaults canônicos
@@ -37,16 +39,11 @@ class InboundService:
     SEMAFORO_CONCORRENCIA_IA = asyncio.Semaphore(settings.CONCURRENCY_SEMAPHORE_LIMIT)
 
     @classmethod
-    async def processar_debounce(cls, telefone: str, nome_contato: str, timestamp_disparo: float) -> None:
-        """
-        Ponto de entrada assíncrono acionado pelo Webhook.
-        Aguarda a janela de agrupamento (debounce) e processa o lote de mensagens.
-        """
+    async def processar_debounce(cls, telefone: str, nome_contato: str, timestamp_disparo: str | float) -> None:
+        """Ponto de entrada assíncrono acionado pelo Webhook pós-debounce."""
         try:
-            # 1. Aguarda a janela de digitação do cliente
             await asyncio.sleep(settings.DEBOUNCE_SECONDS)
 
-            # 2. Verifica se houve novas mensagens após esta tarefa
             eh_ultima = await cls.buffer_gateway.verificar_se_e_ultima(telefone, timestamp_disparo)
             if not eh_ultima:
                 logger.info(f"[DEBOUNCE] ⏳ Nova mensagem detectada para {telefone}. Descartando lote anterior.")
@@ -57,13 +54,11 @@ class InboundService:
                 f"Consolidando lote completo..."
             )
 
-            # 3. Desempacota e normaliza todas as mensagens acumuladas no Redis
             texto_consolidado = await cls._consolidar_mensagens_buffer(telefone)
             if not texto_consolidado:
                 logger.info(f"[DEBOUNCE] Nenhuma mensagem válida com conteúdo para processar de {telefone}")
                 return
 
-            # 4. Executa o pipeline de domínio com sessão de banco de dados
             async with AsyncSessionLocal() as db:
                 await cls._executar_pipeline_atendimento(db, telefone, nome_contato, texto_consolidado)
 
@@ -116,20 +111,17 @@ class InboundService:
         nome_contato: str,
         texto_consolidado: str
     ) -> None:
-        """Orquestra as etapas de negócio para o lead que enviou a mensagem."""
+        """Orquestra as verificações de segurança, persistência e cognição do lead."""
         lead = await cls._obter_ou_criar_lead(db, telefone, nome_contato)
 
-        # 🛡️ TRAVA LGPD: Se o cliente já solicitou opt-out, ignora qualquer envio futuro
         if lead.opt_out:
             logger.info(f"[LGPD OPT-OUT] 🛑 Mensagem de {telefone} ignorada pois o cliente está descadastrado.")
             return
 
-        # 🛡️ FAST-PATH DETERMINÍSTICO LGPD / ANTI-SPAM (Independente de IA)
-        if cls._verificar_comando_optout_deterministico(texto_consolidado):
-            await cls._executar_optout_deterministico(db, lead, telefone, texto_consolidado)
+        if OptOutGuard.verificar_comando(texto_consolidado):
+            await OptOutGuard.executar_optout(db, lead, telefone, texto_consolidado, cls.whatsapp_gateway)
             return
 
-        # Salva o bloco unificado de mensagens do cliente
         await LeadRepository.add_interaction(
             db=db,
             lead_id=lead.id,
@@ -137,10 +129,8 @@ class InboundService:
             texto=texto_consolidado
         )
 
-        # 🛑 CANCELAMENTO REATIVO DE CADÊNCIA (RF12 do PRD): Cliente respondeu!
         await FollowupService.cancelar_followups_pendentes(db, lead.id)
 
-        # 🛡️ TRAVA TRANSBORDO: Se o atendimento está com humano, verifica timeout de inatividade
         if lead.controle in [models.ControleAtendimento.TRANSBORDO_SOLICITADO, models.ControleAtendimento.HUMANO_ASSUMIU]:
             retomou = await TransbordoService.verificar_e_executar_retomada_automatica(db, lead)
             if not retomou:
@@ -154,17 +144,14 @@ class InboundService:
                 f"Controle devolvido para PILOTO_IA. A IA responderá ao lead."
             )
 
-        # Notifica o WhatsApp com status 'digitando...'
         await cls.whatsapp_gateway.enviar_presenca(telefone, presenca="composing", delay_ms=25000)
 
-        # Carrega histórico recente
         historico_recente = await LeadRepository.get_recent_interactions(
             db=db,
             lead_id=lead.id,
             limit=settings.JANELA_HISTORICO_RECENTE
         )
 
-        # 🧠 Execução dos Agentes protegida pelo Semáforo de Concorrência Global
         async with cls.SEMAFORO_CONCORRENCIA_IA:
             await cls._processar_cognicao_e_resposta(
                 db=db,
@@ -185,36 +172,36 @@ class InboundService:
         texto_consolidado: str,
         historico_recente: List[models.Interacao]
     ) -> None:
-        """Executa o Agente Analista (FSM 4D), atualiza dimensões e aciona o Agente Vendedor ('Seu Zé')."""
-        # 🧠 AGENTE 1: Analista de Inteligência Comercial (gpt-4o-mini)
+        """Executa a cognição dos agentes de IA (Analista e Closer), respeitando o Guardião de Velocidade."""
+        lead_id = getattr(lead, "id")
         analise = await agents.analisar_lead_e_fsm(
             lead=lead,
             historico_recente=historico_recente,
             nova_mensagem=texto_consolidado
         )
 
-        # 🛑 TRATAMENTO DE OPT-OUT DETECTADO
         if analise.opt_out_detectado:
             lead.opt_out = True
             lead.desfecho = models.DesfechoLead.PERDIDO
             lead.motivo_perda = "Descadastro / Opt-out LGPD"
             await db.commit()
 
-            despedida = "Entendido com certeza. Suas preferências de contato foram atualizadas e não enviaremos mais mensagens por aqui. Agradecemos a atenção e ficamos à disposição caso precise no futuro!"
-            await LeadRepository.add_interaction(db, lead.id, models.InteracaoOrigem.IA, despedida)
+            despedida = OptOutGuard.MENSAGEM_CONFIRMACAO
+            await LeadRepository.add_interaction(db, lead_id, models.InteracaoOrigem.IA, despedida)
             await cls.whatsapp_gateway.enviar_mensagem(telefone, despedida, delay_ms=1000)
             logger.info(f"[LGPD OPT-OUT] 🛑 Lead {telefone} descadastrado com sucesso.")
             return
 
-        # Atualiza canal de origem se identificado
         if analise.origem_canal_detectada:
             if not lead.origem_canal or lead.origem_canal == "WHATSAPP_DIRETO":
                 lead.origem_canal = analise.origem_canal_detectada
 
-        # Registra desfecho anterior para evitar re-auditorias desnecessárias
+        etapa_anterior = lead.etapa_funil
         desfecho_anterior = lead.desfecho
 
-        # Atualiza dimensões de vendas e inteligência comercial
+        if analise.etapa_sugerida != etapa_anterior:
+            await ConversationPacingService.resetar_etapa(lead_id)
+
         lead.etapa_funil = analise.etapa_sugerida
         lead.desfecho = analise.desfecho_sugerido
         lead.temperatura = analise.temperatura_sugerida
@@ -231,81 +218,75 @@ class InboundService:
         if analise.tags_sugeridas:
             LeadRepository.sincronizar_tags(lead, adicionar=analise.tags_sugeridas)
 
-        await db.commit()
-
-        # 🚨 TRATAMENTO DE TRANSBORDO HUMANO (RF10 do PRD)
+        transbordo_fechamento_pendente = False
         if analise.transbordo_sugerido:
-            await TransbordoService.executar_transbordo(
-                db=db,
-                lead=lead,
-                motivo=analise.justificativa,
-                analise=analise
-            )
-            asyncio.create_task(cls.disparar_auditoria_background(lead.id))
-            logger.warning(f"[TRANSBORDO ACIONADO] 🛑 Lead {telefone} em transbordo. IA silenciada.")
-            return
+            motivo_analise = (analise.justificativa or "").lower()
+            if lead.etapa_funil == models.EtapaFunil.FECHAMENTO and (
+                "fechamento" in motivo_analise or "contrato" in motivo_analise or "dados" in motivo_analise
+            ):
+                transbordo_fechamento_pendente = True
+            else:
+                await TransbordoService.executar_transbordo(
+                    db=db,
+                    lead=lead,
+                    motivo=analise.justificativa,
+                    analise=analise
+                )
+                asyncio.create_task(cls.disparar_auditoria_background(lead_id))
+                logger.warning(f"[TRANSBORDO ACIONADO] 🛑 Lead {telefone} em transbordo. IA silenciada.")
+                return
 
-        # Auditoria executiva apenas na transição de fechamento (GANHO/PERDIDO) ou se ainda não possuir dossiê
         desfecho_mudou_para_fechado = (
             analise.desfecho_sugerido in [models.DesfechoLead.GANHO, models.DesfechoLead.PERDIDO]
             and (desfecho_anterior != analise.desfecho_sugerido or not lead.dossie_comercial)
         )
         if desfecho_mudou_para_fechado:
-            asyncio.create_task(cls.disparar_auditoria_background(lead.id))
+            asyncio.create_task(cls.disparar_auditoria_background(lead_id))
 
-        # 🤖 AGENTE 2: Vendedor Consultivo 'Seu Zé' (gpt-4o com FinOps)
-        nome_ia = lead.nome or nome_contato
-        resposta_ia = await agents.gerar_resposta_vendedor(
-            nome_cliente_bruto=nome_ia,
-            ficha_resumo=lead.resumo_perfil,
-            etapa_funil=lead.etapa_funil,
-            historico_recente=historico_recente
+        nome_ia = str(lead.nome or nome_contato or "Cliente")
+        lead_id = getattr(lead, "id")
+        pacing_eval = await ConversationPacingService.avaliar_e_incrementar(
+            lead_id=lead_id,
+            etapa=lead.etapa_funil,
+            nome_cliente=nome_ia
         )
 
-        # 🛑 BLINDAGEM OPERACIONAL: SE A IA NÃO FORMULOU RESPOSTA (Ex: Créditos OpenAI esgotados ou erro)
-        # NUNCA envia mensagens desconexas ao cliente real. Silencia a IA e escala para atendimento humano!
-        if not resposta_ia or not resposta_ia.strip():
-            logger.critical(
-                f"[IA SILENCIADA] 🛑 Nenhuma resposta gerada pela IA para {telefone} "
-                f"(créditos esgotados ou falha técnica). Silenciando envio e acionando transbordo humano."
-            )
-            lead = await LeadRepository.recarregar_lead(db, lead.id) or lead
-            LeadRepository.sincronizar_tags(lead, adicionar=["REQUER_ATENCAO", "SEM_CREDITO_OPENAI"])
-            lead.controle = models.ControleAtendimento.TRANSBORDO_SOLICITADO
+        if pacing_eval.deve_encerrar_por_estagnacao:
+            lead.desfecho = models.DesfechoLead.PERDIDO
+            lead.temperatura = models.TemperaturaLead.FRIO
+            lead.motivo_perda = f"Estagnação Conversacional ({pacing_eval.mensagens_na_etapa} msgs em {lead.etapa_funil.value})"
             await db.commit()
 
-            # Registra no histórico como nota interna de sistema
-            await LeadRepository.add_interaction(
-                db=db,
-                lead_id=lead.id,
-                origem=models.InteracaoOrigem.SISTEMA,
-                texto="[ALERTA OPERACIONAL]: Créditos da OpenAI esgotados ou indisponibilidade da IA. "
-                      "A IA foi silenciada para preservar a experiência do cliente. Atendimento transferido para a equipe humana."
+            despedida_humana = pacing_eval.mensagem_despedida_humana or OptOutGuard.MENSAGEM_CONFIRMACAO
+            await LeadRepository.add_interaction(db, lead_id, models.InteracaoOrigem.IA, despedida_humana)
+            await cls.whatsapp_gateway.enviar_mensagem(telefone, despedida_humana, delay_ms=1000)
+            await FollowupService.cancelar_followups_pendentes(db, lead_id, models.StatusFollowup.ABORTADO)
+            asyncio.create_task(cls.disparar_auditoria_background(lead_id))
+            logger.warning(
+                f"[PACING GUARD - ESTAGNAÇÃO] 🛑 Lead {telefone} atingiu {pacing_eval.mensagens_na_etapa} mensagens em {lead.etapa_funil.value}. "
+                f"Encerrado com despedida humana e desfecho PERDIDO (Zero-Touch)."
             )
-
-            # Notifica supervisor / equipe humana
-            motivo_alerta = "Créditos da OpenAI esgotados / Falha na IA. Cliente aguarda resposta humana."
-            asyncio.create_task(
-                TransbordoService.notificar_equipe(
-                    lead=lead,
-                    motivo=motivo_alerta,
-                    analise=analise
-                )
-            )
-
-            # Registra alerta operacional no Redis para monitoramento e dashboards
-            try:
-                from integrations.redis.buffer import redis_client
-                await redis_client.set("alerta_sistema:openai_sem_creditos", "1", ex=86400)
-            except Exception:
-                pass
             return
 
-        # 🛡️ GUARDA PRÉ-DISPARO (ANTI-COLISÃO EM VOO):
-        # Enquanto a IA formulava a resposta (latência de LLM), um atendente humano
-        # pode ter assumido a conversa no WhatsApp Web ou o lead pode ter solicitado opt-out.
-        lead = await LeadRepository.recarregar_lead(db, lead.id) or lead
+        ficha_resumo = str(lead.resumo_perfil) if lead.resumo_perfil else None
+        resposta_ia = await agents.gerar_resposta_vendedor(
+            nome_cliente_bruto=nome_ia,
+            ficha_resumo=ficha_resumo,
+            etapa_funil=lead.etapa_funil,
+            historico_recente=historico_recente,
+            diretriz_proatividade=pacing_eval.diretriz_proatividade
+        )
 
+        if not resposta_ia or not resposta_ia.strip():
+            await InboundFailoverService.lidar_com_falha_geracao(
+                db=db,
+                lead=lead,
+                telefone=telefone,
+                analise=analise
+            )
+            return
+
+        lead = await LeadRepository.recarregar_lead(db, lead.id) or lead
         if lead.controle in [models.ControleAtendimento.HUMANO_ASSUMIU, models.ControleAtendimento.TRANSBORDO_SOLICITADO] or lead.opt_out:
             logger.warning(
                 f"[COLISAO EM VOO EVITADA] 🛑 Disparo da IA cancelado para {telefone}. "
@@ -313,14 +294,12 @@ class InboundService:
             )
             return
 
-        # Dispara a resposta comercial dividida em múltiplos balões com presença humanizada (SRP / DRY)
-        partes_mensagem, sucesso_envio = await cls.whatsapp_gateway.enviar_mensagem_humanizada(
+        partes_mensagem, _ = await cls.whatsapp_gateway.enviar_mensagem_humanizada(
             telefone=telefone,
             texto_bruto=resposta_ia,
             delay_base_ms=1500
         )
 
-        # Salva a resposta da IA no histórico (formato limpo legível para o CRM/Dashboard, sem |||)
         texto_historico = "\n\n".join(partes_mensagem) if partes_mensagem else resposta_ia
         await LeadRepository.add_interaction(
             db=db,
@@ -334,7 +313,21 @@ class InboundService:
             f"({len(partes_mensagem)} balão(ões) enviado(s) | Etapa: {lead.etapa_funil.value})"
         )
 
-        # 📅 MOTOR DE CADÊNCIA E FOLLOW-UP PROATIVO (RF11 do PRD)
+        if transbordo_fechamento_pendente:
+            motivo_fechamento = analise.justificativa or "Fechamento Comercial / Assinatura de Contrato"
+            await TransbordoService.executar_transbordo(
+                db=db,
+                lead=lead,
+                motivo=motivo_fechamento,
+                analise=analise
+            )
+            asyncio.create_task(cls.disparar_auditoria_background(lead_id))
+            logger.info(
+                f"[TRANSBORDO FECHAMENTO] 🤝 Mensagem de acolhimento enviada para {telefone}. "
+                f"Atendimento escalado para formalização e assinatura de contrato pela equipe humana."
+            )
+            return
+
         await FollowupService.agendar_proximo_followup(db, lead)
 
     @staticmethod
@@ -343,44 +336,10 @@ class InboundService:
         from core.utils import dividir_mensagens_whatsapp as _dividir
         return _dividir(texto)
 
-    @staticmethod
-    async def disparar_auditoria_background(lead_id: int) -> None:
-        """Executa a auditoria em background sem bloquear a resposta no WhatsApp."""
-        try:
-            async with AsyncSessionLocal() as bg_db:
-                await LeadService.gerar_dossie_lead(bg_db, lead_id)
-        except Exception as exc:
-            logger.error(f"[AUDITOR BACKGROUND ERRO] Falha ao gerar dossiê para Lead ID {lead_id}: {exc}")
-
-    @staticmethod
-    def _verificar_comando_optout_deterministico(texto: str) -> bool:
-        """
-        Detecta comandos determinísticos de descadastro (LGPD / Anti-Spam / Fast-Path).
-        Opera de forma 100% autônoma e independente de LLMs para garantir conformidade mesmo em outages.
-        """
-        if not texto:
-            return False
-
-        # Normaliza removendo acentuação e convertendo para maiúsculo
-        texto_limpo = unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8").upper().strip()
-
-        # Palavras exatas ou comandos curtos isolados
-        palavras_comando = {"STOP", "PARE", "SAIR", "CANCELAR", "DESCADASTRAR", "DESCADASTRO"}
-        tokens = re.findall(r"\b[A-Z]+\b", texto_limpo)
-        if any(token in palavras_comando for token in tokens):
-            return True
-
-        # Frases compostas de recusa
-        frases_gatilho = [
-            "NAO QUERO MAIS",
-            "REMOVER MEU NUMERO",
-            "TIRAR MEU NUMERO",
-            "NAO ME MANDE",
-            "NAO ENVIE MAIS",
-            "CANCELAR MENSAGENS",
-            "PARAR DE MANDAR"
-        ]
-        return any(frase in texto_limpo for frase in frases_gatilho)
+    @classmethod
+    def _verificar_comando_optout_deterministico(cls, texto: str) -> bool:
+        """Delega para o OptOutGuard (compatibilidade com testes legados)."""
+        return OptOutGuard.verificar_comando(texto)
 
     @classmethod
     async def _executar_optout_deterministico(
@@ -390,30 +349,14 @@ class InboundService:
         telefone: str,
         texto_recebido: str
     ) -> None:
-        """
-        Executa o opt-out determinístico sem chamar agentes de IA (Fast-Path).
-        Cancela follow-ups, atualiza o status do lead e envia confirmação formal.
-        """
-        lead.opt_out = True
-        lead.desfecho = models.DesfechoLead.PERDIDO
-        lead.motivo_perda = "Descadastro / Opt-out LGPD (Comando Determinístico)"
-        await db.commit()
+        """Delega para o OptOutGuard (compatibilidade com testes legados)."""
+        await OptOutGuard.executar_optout(db, lead, telefone, texto_recebido, cls.whatsapp_gateway)
 
-        # Salva a mensagem recebida do cliente
-        await LeadRepository.add_interaction(
-            db=db,
-            lead_id=lead.id,
-            origem=models.InteracaoOrigem.CLIENTE,
-            texto=texto_recebido
-        )
-
-        # Cancela qualquer follow-up pendente
-        await FollowupService.cancelar_followups_pendentes(db, lead.id, models.StatusFollowup.ABORTADO)
-
-        despedida = (
-            "Entendido com certeza. Suas preferências de contato foram atualizadas "
-            "e não enviaremos mais mensagens por aqui. Agradecemos a atenção e ficamos à disposição caso precise no futuro!"
-        )
-        await LeadRepository.add_interaction(db, lead.id, models.InteracaoOrigem.IA, despedida)
-        await cls.whatsapp_gateway.enviar_mensagem(telefone, despedida, delay_ms=1000)
-        logger.warning(f"[LGPD OPT-OUT DETERMINÍSTICO] 🛑 Lead {telefone} descadastrado via fast-path (sem dependência de IA).")
+    @staticmethod
+    async def disparar_auditoria_background(lead_id: int) -> None:
+        """Executa a auditoria em background sem bloquear a resposta no WhatsApp."""
+        try:
+            async with AsyncSessionLocal() as bg_db:
+                await LeadService.gerar_dossie_lead(bg_db, lead_id)
+        except Exception as exc:
+            logger.error(f"[AUDITOR BACKGROUND ERRO] Falha ao gerar dossiê para Lead ID {lead_id}: {exc}")

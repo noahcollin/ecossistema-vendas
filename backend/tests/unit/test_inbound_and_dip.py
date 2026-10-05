@@ -119,6 +119,7 @@ async def test_inbound_service_silences_whatsapp_on_ai_failure(monkeypatch):
     monkeypatch.setattr(LeadRepository, "recarregar_lead", AsyncMock(return_value=lead))
     monkeypatch.setattr(LeadRepository, "add_interaction", AsyncMock())
     monkeypatch.setattr("services.transbordo_service.TransbordoService.notificar_equipe", AsyncMock())
+    monkeypatch.setattr("integrations.redis.buffer.redis_client.set", AsyncMock())
 
     await InboundService._processar_cognicao_e_resposta(
         db=mock_db,

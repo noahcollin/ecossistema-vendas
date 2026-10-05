@@ -40,13 +40,13 @@ async def analisar_lead_e_fsm(
             mensagens_formatadas.append(f"{remetente}: {interacao.texto}")
         
         # Se nova_mensagem foi informada e ainda não está no histórico salvo
-        if nova_mensagem:
+        if nova_mensagem and nova_mensagem.strip():
             msg_limpa = nova_mensagem.strip()
             ja_esta_no_historico = any(msg_limpa in mf for mf in mensagens_formatadas[-2:]) if mensagens_formatadas else False
             if not ja_esta_no_historico:
                 mensagens_formatadas.append(f"Cliente: {msg_limpa}")
 
-        contexto_dialogo = "\n".join(mensagens_formatadas) if mensagens_formatadas else f"Cliente: {nova_mensagem or 'Iniciou conversa'}"
+        contexto_dialogo = "\n".join(mensagens_formatadas) if mensagens_formatadas else f"Cliente: {(nova_mensagem or '').strip() or 'Iniciou conversa'}"
 
         prompt_usuario = f"""
 [ESTADO ATUAL NO BANCO DE DADOS]
@@ -107,7 +107,15 @@ Com base nas informações acima e na nova interação do cliente, atualize a Fi
 
     except Exception as e:
         err_str = str(e).lower()
-        cota_esgotada = "insufficient_quota" in err_str or "credit_balance_exhausted" in err_str or "no credits remaining" in err_str
+        termos_cota = [
+            "insufficient_quota",
+            "quota_exceeded",
+            "exceeded your current quota",
+            "credit_balance_exhausted",
+            "no credits remaining",
+            "billing_hard_limit_reached"
+        ]
+        cota_esgotada = any(termo in err_str for termo in termos_cota)
         tags_fallback = list(getattr(lead, "tags", []) or [])
         if cota_esgotada:
             logger.critical(f"[ANALISTA LEAD - COTA ESGOTADA] 🚨 Falha por esgotamento de créditos da OpenAI para {lead.telefone}: {e}")

@@ -1,10 +1,14 @@
-from typing import List, Optional, Any
+from typing import List, Optional
 from core.logger import logger
 from core.openai_client import openai_client
 from core.config import settings
 from core.utils import higienizar_nome_perfil
 import models
-from .prompts import PROMPT_BASE_VENDEDOR, ORIENTACOES_POR_ESTAGIO
+from .prompts import (
+    PROMPT_BASE_VENDEDOR,
+    ORIENTACOES_POR_ESTAGIO,
+    ORIENTACOES_FOLLOWUP,
+)
 
 def formatar_dialogo_para_chat(
     historico_recente: Optional[List[models.Interacao]],
@@ -41,11 +45,14 @@ async def gerar_resposta_vendedor(
     nome_cliente_bruto: str,
     ficha_resumo: Optional[str],
     etapa_funil: Optional[models.EtapaFunil] = None,
-    historico_recente: Optional[List[models.Interacao]] = None
+    historico_recente: Optional[List[models.Interacao]] = None,
+    diretriz_proatividade: Optional[str] = None,
+    **kwargs
 ) -> Optional[str]:
     """
     Gera a resposta humanizada do Vendedor ('Seu Zé') via GPT-4o,
-    alimentado pela Ficha do Lead, etapa atual da jornada e últimas mensagens imediatas.
+    alimentado pela Ficha do Lead, etapa atual da jornada, últimas mensagens imediatas
+    e diretrizes de proatividade comercial (Autonomous Closer Drive).
     """
     try:
         historico_lista = list(historico_recente) if historico_recente else []
@@ -63,6 +70,8 @@ async def gerar_resposta_vendedor(
         orientacao_estagio = ORIENTACOES_POR_ESTAGIO.get(etapa_atual, "Conduza a conversa de forma consultiva e empática.")
         ficha_formatada = ficha_resumo.strip() if ficha_resumo else "Primeiro contato, ainda sem dados acumulados."
 
+        bloco_proatividade = f"\n{diretriz_proatividade}\n" if diretriz_proatividade else ""
+
         bloco_contexto = f"""
 {PROMPT_BASE_VENDEDOR}
 {instrucao_nome}
@@ -73,7 +82,7 @@ async def gerar_resposta_vendedor(
 [ESTÁGIO ATUAL DA NEGOCIAÇÃO NO FUNIL]
 Etapa: {etapa_atual.value}
 Objetivo Desta Etapa: {orientacao_estagio}
-"""
+{bloco_proatividade}"""
 
         mensagens = [{"role": "system", "content": bloco_contexto}]
         mensagens.extend(formatar_dialogo_para_chat(historico_lista, settings.JANELA_HISTORICO_RECENTE))
@@ -107,7 +116,15 @@ Objetivo Desta Etapa: {orientacao_estagio}
 
     except Exception as e:
         err_str = str(e).lower()
-        if "insufficient_quota" in err_str or "credit_balance_exhausted" in err_str or "no credits remaining" in err_str:
+        termos_cota = [
+            "insufficient_quota",
+            "quota_exceeded",
+            "exceeded your current quota",
+            "credit_balance_exhausted",
+            "no credits remaining",
+            "billing_hard_limit_reached"
+        ]
+        if any(termo in err_str for termo in termos_cota):
             logger.critical(
                 f"[OPENAI COTA ESGOTADA] 🚨 Créditos da OpenAI esgotados! Silenciando IA para evitar envio de mensagens confusas ao cliente: {e}"
             )
@@ -128,8 +145,6 @@ async def gerar_mensagem_followup(
     conforme a tentativa na cadência (1, 2 ou 3) e o histórico prévio.
     Implementa o requisito RF11 do PRD (Motor de Follow-up Cronometrado).
     """
-    from .prompts import ORIENTACOES_FOLLOWUP
-
     try:
         historico_lista = list(historico_recente) if historico_recente else []
         nome_validado = higienizar_nome_perfil(nome_cliente_bruto)
@@ -172,8 +187,11 @@ INSTRUÇÕES CRÍTICAS DE CADÊNCIA:
             "content": f"[INSTRUÇÃO FINAL]: O cliente parou de responder. Envie a mensagem proativa de Follow-up (Toque {tentativa}) seguindo o tom caloroso e natural do Seu Zé."
         })
 
-        # Em follow-up inicial usamos modelo rápido; em negociação avançada usamos gpt-4o
-        modelo = settings.MODEL_CLOSER_ADVANCED if (etapa_funil in [models.EtapaFunil.NEGOCIACAO, models.EtapaFunil.FECHAMENTO]) else settings.MODEL_CLOSER_FAST
+        # Roteamento de Modelo para Follow-up (FinOps)
+        if settings.DYNAMIC_MODEL_ROUTING:
+            modelo = settings.MODEL_CLOSER_ADVANCED if (etapa_funil in [models.EtapaFunil.NEGOCIACAO, models.EtapaFunil.FECHAMENTO]) else settings.MODEL_CLOSER_FAST
+        else:
+            modelo = settings.MODEL_CLOSER
 
         logger.info(
             f"[FOLLOWUP VENDEDOR] ⏳ Gerando Toque {tentativa}/3 para {nome_validado or 'Cliente'} | "
@@ -193,7 +211,15 @@ INSTRUÇÕES CRÍTICAS DE CADÊNCIA:
 
     except Exception as e:
         err_str = str(e).lower()
-        if "insufficient_quota" in err_str or "credit_balance_exhausted" in err_str or "no credits remaining" in err_str:
+        termos_cota = [
+            "insufficient_quota",
+            "quota_exceeded",
+            "exceeded your current quota",
+            "credit_balance_exhausted",
+            "no credits remaining",
+            "billing_hard_limit_reached"
+        ]
+        if any(termo in err_str for termo in termos_cota):
             logger.critical(
                 f"[OPENAI COTA ESGOTADA - FOLLOWUP] 🚨 Créditos da OpenAI esgotados! Silenciando follow-up: {e}"
             )

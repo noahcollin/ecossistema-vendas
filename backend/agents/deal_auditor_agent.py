@@ -6,7 +6,7 @@ dica de ouro para o atendimento humano e feedback para a empresa).
 """
 
 import json
-from typing import List, Optional
+from typing import List
 from core.openai_client import openai_client
 from core.logger import logger
 from core.config import settings
@@ -26,7 +26,14 @@ async def auditar_jornada_lead(
         # Formata o histórico cronológico de todas as mensagens
         mensagens_formatadas = []
         for interacao in historico_completo:
-            remetente = "Cliente" if interacao.origem == models.InteracaoOrigem.CLIENTE else "Vendedor (IA)"
+            if interacao.origem == models.InteracaoOrigem.CLIENTE:
+                remetente = "Cliente"
+            elif interacao.origem == models.InteracaoOrigem.HUMANO:
+                remetente = "Consultor Humano (Equipe)"
+            elif interacao.origem == models.InteracaoOrigem.SISTEMA:
+                remetente = "Nota de Sistema"
+            else:
+                remetente = "Vendedor (IA)"
             mensagens_formatadas.append(f"{remetente}: {interacao.texto}")
 
         dialogo_completo = "\n".join(mensagens_formatadas) if mensagens_formatadas else "Nenhuma mensagem registrada."
@@ -60,7 +67,7 @@ Tags Registradas: {lead.tags or []}
 """
 
         resposta = await openai_client.beta.chat.completions.parse(
-            model=settings.MODEL_ANALYZER,
+            model=settings.MODEL_AUDITOR,
             messages=[
                 {"role": "system", "content": PROMPT_SISTEMA_AUDITOR},
                 {"role": "user", "content": prompt_usuario}
@@ -86,7 +93,19 @@ Tags Registradas: {lead.tags or []}
         return dossie
 
     except Exception as e:
-        logger.error(f"[AUDITOR COMERCIAL ERRO] ❌ Falha ao auditar lead {lead.telefone}: {e}", exc_info=True)
+        err_str = str(e).lower()
+        termos_cota = [
+            "insufficient_quota",
+            "quota_exceeded",
+            "exceeded your current quota",
+            "credit_balance_exhausted",
+            "no credits remaining",
+            "billing_hard_limit_reached"
+        ]
+        if any(termo in err_str for termo in termos_cota):
+            logger.critical(f"[AUDITOR COMERCIAL - COTA ESGOTADA] 🚨 Falha por esgotamento de créditos da OpenAI para {lead.telefone}: {e}")
+        else:
+            logger.error(f"[AUDITOR COMERCIAL ERRO] ❌ Falha ao auditar lead {lead.telefone}: {e}", exc_info=True)
         # Fallback defensivo e resiliente
         desfecho_padrao = lead.desfecho if hasattr(lead, "desfecho") and lead.desfecho else models.DesfechoLead.EM_ANDAMENTO
         tipo_entrada_padrao = lead.tipo_entrada.value if hasattr(lead, "tipo_entrada") and lead.tipo_entrada else "INBOUND"

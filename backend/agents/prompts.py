@@ -99,7 +99,16 @@ ORIENTACOES_POR_ESTAGIO = {
     models.EtapaFunil.NOVO_CONTATO: "Acolha o lead com calor e naturalidade de consultor. Descubra o segmento dele e o maior gargalo que está fazendo a empresa perder vendas ou tempo hoje.",
     models.EtapaFunil.QUALIFICACAO: "Faça perguntas consultivas cirúrgicas para entender a dor: volume de mensagens, tamanho da equipe e quanto ele estima que perde em clientes sem resposta rápida. Desperte a urgência!",
     models.EtapaFunil.NEGOCIACAO: "POSTURA DE CLOSER: Apresente o Agente Autônomo de IA ou Chat Inteligentte com entusiasmo. Ancore o retorno do investimento (ROI) imediatamente — a ferramenta se paga com pouquíssimas conversões recuperadas. Trate preços com firmeza e conduza diretamente para o fechamento ou agendamento de implantação já esta semana!",
-    models.EtapaFunil.FECHAMENTO: "O cliente deu sinal verde para fechar! Comemore a decisão com entusiasmo genuíno e peça os dados cadastrais em prosa natural e fluida (CNPJ ou CPF, razão social e melhor e-mail), sem jamais usar listas numeradas de formulário.",
+    models.EtapaFunil.FECHAMENTO: (
+        "O cliente deu sinal verde para fechar! Sua postura aqui é de comemoração e acolhimento humano: "
+        "1. Se o cliente acabou de dizer 'sim / quero fechar': Comemore a decisão com entusiasmo genuíno ('Excelente decisão, amigo!'). "
+        "Solicite os dados cadastrais básicos em prosa leve e fluida (Razão Social ou Nome completo, CNPJ ou CPF e melhor e-mail), "
+        "sem jamais usar listas numeradas de formulário robótico. Avise com naturalidade que assim que ele passar esses dados, "
+        "o nosso especialista responsável por contratos e implantação entrará em contato em seguida para formalizar a assinatura e tirar dúvidas finais. "
+        "2. Se o cliente já enviou os dados cadastrais solicitados: Agradeça calorosamente, confirme o recebimento e avise "
+        "que já repassou tudo para o colega especialista de contratos/implantação, e que ele já está cuidando da minuta e vai chamá-lo em instantes por aqui. "
+        "Deseje as boas-vindas à Inteligentte com grande energia!"
+    ),
 }
 
 # Diretrizes para Cadência de Follow-Up Automático (RF11 & RF12 do PRD)
@@ -121,10 +130,10 @@ Sua responsabilidade NÃO é falar com o cliente. Sua missão é puramente anal�
       - NOVO_CONTATO: Primeiro contato, cliente ainda não expôs necessidades.
       - QUALIFICACAO: Diálogo de diagnóstico ativo (descobrindo segmento, gargalos de atendimento, volume de mensagens, equipe).
       - NEGOCIACAO: Solução da Inteligentte apresentada (Agentes Autônomos, Chat Inteligentte ou Demand AI), discussão de valores, dúvidas técnicas, tratamento de objeções de preço ou confiança.
-      - FECHAMENTO: Cliente deu o "Sim" (ex: "quero implementar", "vamos fechar", "como assino?"), coletando dados cadastrais.
+      - FECHAMENTO: Cliente deu o "Sim" (ex: "quero implementar", "vamos fechar", "como assino?"), em fase de coleta de dados cadastrais para formalização contratual pela equipe humana.
 
    B) DESFECHO DO NEGÓCIO (`desfecho_sugerido`):
-      - EM_ANDAMENTO: Negociação ativa normal.
+      - EM_ANDAMENTO: Negociação ativa normal (inclusive durante a fase de coleta e fechamento).
       - GANHO: Venda concluída e contrato emitido/aceito formalmente.
       - PERDIDO: O cliente recusou taxativamente, desistiu expressamente ou não tem viabilidade/perfil para a solução.
       - CONGELADO_CADENCIA: Cliente sumiu no meio do papo, sem resposta recente após follow-ups.
@@ -135,7 +144,8 @@ Sua responsabilidade NÃO é falar com o cliente. Sua missão é puramente anal�
         2. Demonstrou agressividade, hostilidade severa, queixa formal ou ameaça jurídica;
         3. Fez exigências de negociação complexas ou condições fora da alçada padrão da IA;
         4. Trata-se de um lead de altíssimo valor (VIP / grande rede / projeto enterprise) que demanda consultor sênior da Inteligentte;
-        5. Houve alucinação prévia ou desacordo grave sobre escopo/valores que exija correção humana.
+        5. Houve alucinação prévia ou desacordo grave sobre escopo/valores que exija correção humana;
+        6. FECHAMENTO DE CONTRATO: O lead está na etapa FECHAMENTO e acabou de fornecer os dados cadastrais solicitados (CNPJ/CPF, e-mail, etc.). Retorne `transbordo_sugerido = True` com justificativa contendo expressamente 'Fechamento Comercial / Assinatura de Contrato', para que a equipe humana assuma a emissão e assinatura do contrato.
       Nos demais casos normais de vendas, mantenha `False`.
 
    D) TEMPERATURA DO LEAD (`temperatura_sugerida`):

@@ -5,7 +5,6 @@ from integrations.uazapi.client import (
     enviar_mensagem,
     enviar_mensagem_humanizada,
     baixar_arquivo,
-    baixar_arquivo_uazapi
 )
 
 from integrations.uazapi.gateway import UazapiGateway, default_uazapi_gateway
@@ -17,7 +16,6 @@ __all__ = [
     "enviar_mensagem",
     "enviar_mensagem_humanizada",
     "baixar_arquivo",
-    "baixar_arquivo_uazapi",
     "UazapiGateway",
     "default_uazapi_gateway",
 ]

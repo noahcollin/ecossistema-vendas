@@ -10,11 +10,11 @@ from core.logger import logger
 from core.database import engine, Base, AsyncSessionLocal
 from core.config import settings
 from integrations.redis.buffer import redis_client
+from integrations.uazapi import close_uazapi_client
 from services.followup_service import FollowupService
 from services.inbound_service import InboundService
-import models 
 
-from api.routers import leads, webhook, testes
+from api.routers import leads, webhook
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -50,6 +50,22 @@ async def lifespan(app: FastAPI):
             await worker_task
         except asyncio.CancelledError:
             pass
+
+        # Encerramento gracioso de recursos externos e pools de conexão
+        try:
+            await close_uazapi_client()
+        except Exception as err:
+            logger.warning(f"[SHUTDOWN] Erro ao encerrar cliente Uazapi: {err}")
+
+        try:
+            await redis_client.aclose()
+        except Exception as err:
+            logger.warning(f"[SHUTDOWN] Erro ao fechar conexão Redis: {err}")
+
+        try:
+            await engine.dispose()
+        except Exception as err:
+            logger.warning(f"[SHUTDOWN] Erro ao liberar pool PostgreSQL: {err}")
 
 app = FastAPI(
     title="Ecossistema de Vendas Autônomo API",
@@ -136,4 +152,3 @@ async def health_check(response: Response):
 # Incluindo todos os nossos roteadores ("Gavetas")
 app.include_router(leads.router)
 app.include_router(webhook.router)
-app.include_router(testes.router)

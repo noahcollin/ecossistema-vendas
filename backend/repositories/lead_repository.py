@@ -1,7 +1,6 @@
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy import delete
+from sqlalchemy import select, delete
 from sqlalchemy.exc import IntegrityError
 import models
 
@@ -13,10 +12,8 @@ class LeadRepository:
 
     @staticmethod
     async def get_by_id(db: AsyncSession, lead_id: int) -> Optional[models.Lead]:
-        """Obtém um Lead pelo ID primário."""
-        query = select(models.Lead).where(models.Lead.id == lead_id)
-        resultado = await db.execute(query)
-        return resultado.scalars().first()
+        """Obtém um Lead pelo ID primário utilizando o Identity Map da sessão quando disponível."""
+        return await db.get(models.Lead, lead_id)
 
     @staticmethod
     async def get_by_phone(db: AsyncSession, telefone: str) -> Optional[models.Lead]:
@@ -45,9 +42,15 @@ class LeadRepository:
         return resultado.scalars().first()
 
     @staticmethod
-    async def list_all(db: AsyncSession) -> List[models.Lead]:
-        """Retorna todos os leads cadastrados ordenados por criação descendente."""
+    async def list_all(
+        db: AsyncSession,
+        limit: Optional[int] = None,
+        offset: int = 0
+    ) -> List[models.Lead]:
+        """Retorna todos os leads cadastrados ordenados por criação descendente com suporte opcional a paginação."""
         query = select(models.Lead).order_by(models.Lead.criado_em.desc())
+        if limit is not None:
+            query = query.limit(limit).offset(offset)
         resultado = await db.execute(query)
         return list(resultado.scalars().all())
 
@@ -95,6 +98,9 @@ class LeadRepository:
     async def update_multidimensional(
         db: AsyncSession,
         lead: models.Lead,
+        nome: Optional[str] = None,
+        tipo_entrada: Optional[models.TipoEntradaLead] = None,
+        origem_canal: Optional[str] = None,
         etapa_funil: Optional[models.EtapaFunil] = None,
         desfecho: Optional[models.DesfechoLead] = None,
         controle: Optional[models.ControleAtendimento] = None,
@@ -106,7 +112,13 @@ class LeadRepository:
         resumo_perfil: Optional[str] = None,
         dados_qualificacao: Optional[dict] = None
     ) -> models.Lead:
-        """Atualiza as dimensões e inteligência do lead de forma atômica."""
+        """Atualiza as dimensões, dados cadastrais e inteligência do lead de forma atômica."""
+        if nome is not None:
+            lead.nome = nome
+        if tipo_entrada is not None:
+            lead.tipo_entrada = tipo_entrada
+        if origem_canal is not None:
+            lead.origem_canal = origem_canal
         if etapa_funil is not None:
             lead.etapa_funil = etapa_funil
         if desfecho is not None:

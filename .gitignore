@@ -4,5 +4,26 @@
 # Pastas de contexto / documentação restrita
 Contexto/
 
-# Outros
+# Python & Virtual Environments
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.venv/
+env/
+venv/
+
+# Testes e Linters
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDEs e Sistema Operacional
+.vscode/
+.idea/
 .DS_Store
+Thumbs.db
+

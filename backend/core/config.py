@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     DEBOUNCE_SECONDS: float = 4.5
     JANELA_HISTORICO_RECENTE: int = 6  # Janela de mensagens imediatas repassadas aos agentes
     JANELA_HISTORICO_MAX: int = 20
+
+    # Guardião de Velocidade Conversacional & FinOps Anti-Loop (Autonomous Closer Drive)
+    PACING_THRESHOLD_PROACTIVE: int = 10   # Inicia postura ativa de fechamento (Seu Zé toma as rédeas)
+    PACING_THRESHOLD_DECISIVE: int = 20    # Chamada conclusiva amigável (fechamento direto ou descarte)
+    PACING_THRESHOLD_MAX: int = 30         # Trava FinOps: encerramento cordial e desqualificação autônoma
     
     # Modo de Teste / Sandbox e Filtro de Segurança
     SANDBOX_MODE: bool = True
@@ -34,6 +39,9 @@ class Settings(BaseSettings):
     WEBHOOK_SECRET_TOKEN: str = ""  # Se definido, exige X-Webhook-Secret ou ?token=
     CORS_ORIGINS: str = "*"  # Origens permitidas separadas por vírgula (ex: 'https://painel.com,http://localhost:3000')
     
+    # Logging do Sistema
+    LOG_LEVEL: str = "INFO"
+
     # Parâmetros de Alta Concorrência e Pool do PostgreSQL
     DB_POOL_SIZE: int = 25
     DB_MAX_OVERFLOW: int = 50
@@ -49,10 +57,13 @@ class Settings(BaseSettings):
     MODEL_CLOSER_ADVANCED: str = "gpt-4o"        # Usado em NEGOCIACAO e FECHAMENTO
     DYNAMIC_MODEL_ROUTING: bool = True          # Roteamento inteligente para redução de custos
     MODEL_ANALYZER: str = "gpt-4o-mini"
+    MODEL_AUDITOR: str = "gpt-4o-mini"
     MODEL_WHISPER: str = "whisper-1"
     
     # Parâmetros de Rede e Timeouts
     UAZAPI_TIMEOUT_SECONDS: float = 15.0
+    OPENAI_TIMEOUT_SECONDS: float = 30.0
+    OPENAI_MAX_RETRIES: int = 2
 
     # Motor de Cadência e Follow-Up Cronometrado (Fase 2 do PRD - RF11 e RF12)
     FOLLOWUP_ENABLED: bool = True
@@ -62,6 +73,7 @@ class Settings(BaseSettings):
     FOLLOWUP_WORKER_POLL_INTERVAL_SECONDS: int = 30
     BUSINESS_HOURS_START: str = "08:30"
     BUSINESS_HOURS_END: str = "18:30"
+    BUSINESS_HOURS_SATURDAY_START: str = "09:00"
     BUSINESS_HOURS_SATURDAY_END: str = "12:30"
 
     # Blindagem Anti-Ban e Human Pacing (Escalonamento Temporal de Follow-ups)

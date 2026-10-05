@@ -37,7 +37,7 @@ class BusinessHoursPolicy:
 
         inicio_util = cls._parse_hhmm(settings.BUSINESS_HOURS_START)
         fim_util = cls._parse_hhmm(settings.BUSINESS_HOURS_END)
-        inicio_sabado = time(hour=9, minute=0)
+        inicio_sabado = cls._parse_hhmm(settings.BUSINESS_HOURS_SATURDAY_START)
         fim_sabado = cls._parse_hhmm(settings.BUSINESS_HOURS_SATURDAY_END)
 
         minutos_jitter = indice_dispersao * settings.FOLLOWUP_JITTER_STEP_MINUTES

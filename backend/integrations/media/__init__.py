@@ -72,7 +72,13 @@ class MediaPipeline:
             except Exception:
                 content_dict = {}
 
-        legenda = texto or content_dict.get("caption") or ""
+        legenda = (
+            texto
+            or content_dict.get("caption")
+            or content_dict.get("text")
+            or content_dict.get("conversation")
+            or ""
+        )
 
         # Itera pelas estratégias registradas
         for handler in self._handlers:

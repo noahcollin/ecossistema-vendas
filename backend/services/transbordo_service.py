@@ -1,8 +1,7 @@
 import asyncio
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy import cast, String
+from sqlalchemy import select, cast, String
 from fastapi import HTTPException
 
 from datetime import datetime, timezone
@@ -44,7 +43,11 @@ class TransbordoService:
         - Dispara notificações em background sem mensagens robóticas ao cliente.
         """
         lead.controle = models.ControleAtendimento.TRANSBORDO_SOLICITADO
-        LeadRepository.sincronizar_tags(lead, adicionar=["REQUER_ATENCAO", "TRANSBORDO"])
+        tags_adicionar = ["REQUER_ATENCAO", "TRANSBORDO"]
+        motivo_lower = (motivo or "").lower()
+        if "fechamento" in motivo_lower or "contrato" in motivo_lower:
+            tags_adicionar.extend(["PRONTO_FECHAMENTO", "AGUARDANDO_CONTRATO"])
+        LeadRepository.sincronizar_tags(lead, adicionar=tags_adicionar)
 
         await FollowupService.cancelar_followups_pendentes(db, lead.id)
 
@@ -328,8 +331,12 @@ class TransbordoService:
         return interacao
 
     @staticmethod
-    async def listar_pendentes(db: AsyncSession) -> List[models.Lead]:
-        """Lista leads aguardando atenção ou em atendimento humano."""
+    async def listar_pendentes(
+        db: AsyncSession,
+        limit: Optional[int] = None,
+        offset: int = 0
+    ) -> List[models.Lead]:
+        """Lista leads aguardando atenção ou em atendimento humano com suporte opcional a paginação."""
         query = (
             select(models.Lead)
             .where(
@@ -342,6 +349,8 @@ class TransbordoService:
             )
             .order_by(models.Lead.criado_em.desc())
         )
+        if limit is not None:
+            query = query.limit(limit).offset(offset)
         resultado = await db.execute(query)
         return list(resultado.scalars().all())
 

@@ -12,6 +12,7 @@ from core.openai_client import openai_client
 async def executar_analise_visual(
     url_ou_base64: str,
     prompt_instrucao: str,
+    model: str | None = None,
     mimetype: str = "image/jpeg",
     max_tokens: int = 120,
     temperature: float = 0.3,
@@ -22,6 +23,8 @@ async def executar_analise_visual(
     com detail: 'low' para máxima velocidade e economia de tokens.
     """
     try:
+        modelo_final = model or settings.MODEL_ANALYZER
+
         if url_ou_base64.startswith("http://") or url_ou_base64.startswith("https://"):
             imagem_content = {"url": url_ou_base64, "detail": "low"}
         elif url_ou_base64.startswith("data:"):
@@ -30,7 +33,7 @@ async def executar_analise_visual(
             imagem_content = {"url": f"data:{mimetype};base64,{url_ou_base64}", "detail": "low"}
 
         resposta = await openai_client.chat.completions.create(
-            model=settings.MODEL_ANALYZER,
+            model=modelo_final,
             messages=[
                 {
                     "role": "user",

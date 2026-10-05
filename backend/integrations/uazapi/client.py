@@ -90,17 +90,19 @@ async def enviar_mensagem(telefone: str, texto: str, delay_ms: int = 2000, max_r
             resposta.raise_for_status()
             
             dados = resposta.json()
-            if isinstance(dados, dict):
-                msg_id = dados.get("id") or dados.get("messageid") or dados.get("messageId")
-                if not msg_id and isinstance(dados.get("key"), dict):
-                    msg_id = dados["key"].get("id")
-                if msg_id:
-                    try:
-                        await redis_client.setex(f"bot_outbound:{msg_id}", 300, "1")
-                        if ":" in str(msg_id):
-                            await redis_client.setex(f"bot_outbound:{str(msg_id).split(':')[-1]}", 300, "1")
-                    except Exception:
-                        pass
+            itens = [dados] if isinstance(dados, dict) else (dados if isinstance(dados, list) else [])
+            for item in itens:
+                if isinstance(item, dict):
+                    msg_id = item.get("id") or item.get("messageid") or item.get("messageId")
+                    if not msg_id and isinstance(item.get("key"), dict):
+                        msg_id = item["key"].get("id")
+                    if msg_id:
+                        try:
+                            await redis_client.setex(f"bot_outbound:{msg_id}", 300, "1")
+                            if ":" in str(msg_id):
+                                await redis_client.setex(f"bot_outbound:{str(msg_id).split(':')[-1]}", 300, "1")
+                        except Exception:
+                            pass
 
             logger.info(f"[UAZAPI SEND] 🚀 Mensagem enviada para {telefone} com sucesso!")
             return {"status": "sucesso", "dados": dados}
@@ -218,5 +220,3 @@ async def baixar_arquivo(message_id: str, generate_mp3: bool = False) -> dict:
     except Exception as e:
         logger.error(f"[UAZAPI DOWNLOAD ERRO] Falha ao contatar /message/download: {e}")
         return {}
-
-baixar_arquivo_uazapi = baixar_arquivo

@@ -3,15 +3,12 @@ Configurações e fixtures globais de teste para pytest e pytest-asyncio.
 Fornece sessões de banco de dados isoladas e mocks para os gateways do sistema.
 """
 
-import asyncio
 from typing import AsyncGenerator, Any
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import AsyncSessionLocal, engine, Base
-from core.protocols import WhatsAppGatewayProtocol, CacheBufferProtocol
-import models
 
 
 class MockWhatsAppGateway:

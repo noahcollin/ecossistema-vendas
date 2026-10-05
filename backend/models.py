@@ -89,8 +89,8 @@ class Interacao(Base):
     )
     
     id = Column(Integer, primary_key=True, index=True)
-    # A Chave Estrangeira: OBRIGA a ter o ID de um lead válido na tabela "leads"
-    lead_id = Column(Integer, ForeignKey("leads.id"), nullable=False)
+    # A Chave Estrangeira: OBRIGA a ter o ID de um lead válido na tabela "leads" (com exclusão em cascata)
+    lead_id = Column(Integer, ForeignKey("leads.id", ondelete="CASCADE"), nullable=False)
     origem = Column(Enum(InteracaoOrigem), nullable=False)
     texto = Column(String, nullable=False)
     criado_em = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))

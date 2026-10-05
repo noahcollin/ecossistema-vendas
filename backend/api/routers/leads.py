@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Dict, Any
+from typing import List
 
 from core.database import get_db
 from services.lead_service import LeadService
@@ -59,7 +59,7 @@ async def solicitar_transbordo_manual(
     """Aciona transbordo humano manual sob demanda diretamente do painel/CRM."""
     return await TransbordoService.solicitar_transbordo_manual(db, lead_id, motivo=body.motivo)
 
-@router.post("/{lead_id}/transbordo/mensagem")
+@router.post("/{lead_id}/transbordo/mensagem", response_model=schemas.MensagemHumanaResponse)
 async def enviar_mensagem_humana(
     lead_id: int,
     body: schemas.MensagemHumanaManualRequest,
@@ -77,7 +77,7 @@ async def enviar_mensagem_humana(
         "data": interacao.criado_em.isoformat()
     }
 
-@router.post("/", response_model=schemas.LeadResponse)
+@router.post("/", response_model=schemas.LeadResponse, status_code=status.HTTP_201_CREATED)
 async def criar_lead(lead: schemas.LeadCreate, db: AsyncSession = Depends(get_db)):
     """Cria um novo cliente (Lead) manualmente."""
     return await LeadService.criar_lead(db, lead)
@@ -86,6 +86,11 @@ async def criar_lead(lead: schemas.LeadCreate, db: AsyncSession = Depends(get_db
 async def listar_leads(db: AsyncSession = Depends(get_db)):
     """Lista todos os clientes (Leads) cadastrados."""
     return await LeadService.listar_leads(db)
+
+@router.get("/{lead_id}", response_model=schemas.LeadResponse)
+async def obter_lead(lead_id: int, db: AsyncSession = Depends(get_db)):
+    """Recupera os detalhes de um Lead específico pelo seu ID."""
+    return await LeadService.obter_lead(db, lead_id)
 
 @router.delete("/{lead_id}", status_code=204)
 async def deletar_lead(lead_id: int, db: AsyncSession = Depends(get_db)):
@@ -111,8 +116,8 @@ async def resetar_lead_por_telefone(telefone: str, db: AsyncSession = Depends(ge
     """
     return await LeadService.resetar_lead_por_telefone(db, telefone)
 
-@router.get("/{lead_id}/interacoes")
-async def listar_interacoes(lead_id: int, db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
+@router.get("/{lead_id}/interacoes", response_model=List[schemas.InteracaoResponse])
+async def listar_interacoes(lead_id: int, db: AsyncSession = Depends(get_db)):
     """Lista o histórico de conversas (Interações) de um cliente."""
     return await LeadService.listar_interacoes(db, lead_id)
 

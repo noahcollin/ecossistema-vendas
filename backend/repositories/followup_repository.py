@@ -1,8 +1,8 @@
 from typing import Optional, List
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy import update
+from sqlalchemy import select, update
+from sqlalchemy.orm import selectinload
 import models
 
 class FollowupRepository:
@@ -40,15 +40,20 @@ class FollowupRepository:
     ) -> int:
         """
         Cancela de forma atômica todos os follow-ups pendentes para um lead específico.
+        Atualiza o timestamp de auditoria atualizado_em de forma explícita.
         Implementa o requisito RF12 do PRD (Interrupção Imediata por Interação).
         """
+        agora = datetime.now(timezone.utc).replace(tzinfo=None)
         stmt = (
             update(models.FollowupAgendado)
             .where(
                 models.FollowupAgendado.lead_id == lead_id,
                 models.FollowupAgendado.status == models.StatusFollowup.PENDENTE
             )
-            .values(status=motivo)
+            .values(
+                status=motivo,
+                atualizado_em=agora
+            )
         )
         resultado = await db.execute(stmt)
         await db.commit()
@@ -58,10 +63,12 @@ class FollowupRepository:
     async def obter_vencidos_pendentes(
         db: AsyncSession,
         limite: int = 50,
-        data_referencia: Optional[datetime] = None
+        data_referencia: Optional[datetime] = None,
+        carregar_lead: bool = False
     ) -> List[models.FollowupAgendado]:
         """
         Recupera follow-ups com status PENDENTE cuja data agendada já foi atingida.
+        Suporta carregamento otimizado (eager loading) do lead para eliminar N+1 queries.
         """
         agora = data_referencia or datetime.now(timezone.utc).replace(tzinfo=None)
         query = (
@@ -73,6 +80,8 @@ class FollowupRepository:
             .order_by(models.FollowupAgendado.agendado_para.asc())
             .limit(limite)
         )
+        if carregar_lead:
+            query = query.options(selectinload(models.FollowupAgendado.lead))
         resultado = await db.execute(query)
         return list(resultado.scalars().all())
 
@@ -96,13 +105,14 @@ class FollowupRepository:
         db: AsyncSession,
         lead_id: int
     ) -> Optional[models.FollowupAgendado]:
-        """Verifica se existe algum follow-up ativo pendente para o lead."""
+        """Verifica se existe algum follow-up ativo pendente para o lead (retorna o mais recente)."""
         query = (
             select(models.FollowupAgendado)
             .where(
                 models.FollowupAgendado.lead_id == lead_id,
                 models.FollowupAgendado.status == models.StatusFollowup.PENDENTE
             )
+            .order_by(models.FollowupAgendado.id.desc())
             .limit(1)
         )
         resultado = await db.execute(query)

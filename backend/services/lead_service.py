@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,9 +33,21 @@ class LeadService:
         return novo_lead
 
     @staticmethod
-    async def listar_leads(db: AsyncSession) -> List[models.Lead]:
-        """Recupera todos os leads cadastrados."""
-        return await LeadRepository.list_all(db)
+    async def listar_leads(
+        db: AsyncSession,
+        limit: int | None = None,
+        offset: int = 0
+    ) -> List[models.Lead]:
+        """Recupera os leads cadastrados com suporte opcional a paginação."""
+        return await LeadRepository.list_all(db, limit=limit, offset=offset)
+
+    @staticmethod
+    async def obter_lead(db: AsyncSession, lead_id: int) -> models.Lead:
+        """Recupera um lead pelo ID ou levanta 404 caso não exista."""
+        lead = await LeadRepository.get_by_id(db, lead_id)
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead não encontrado")
+        return lead
 
     @staticmethod
     async def deletar_lead(db: AsyncSession, lead_id: int) -> None:

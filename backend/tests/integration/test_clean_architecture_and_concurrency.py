@@ -15,11 +15,10 @@ from fastapi import HTTPException
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from core.database import AsyncSessionLocal
-from core.config import settings
 from repositories.lead_repository import LeadRepository
 from services.lead_service import LeadService
 from integrations.redis import buffer as buffer_service
-from integrations.uazapi.client import get_uazapi_client, close_uazapi_client
+from integrations.uazapi.client import get_uazapi_client
 import models
 import schemas
 
@@ -156,7 +155,7 @@ async def test_schemas_pydantic_v2():
         id=1,
         telefone="+5583999999999",
         etapa_funil=models.EtapaFunil.NOVO_CONTATO,
-        dados_qualificacao={"cidade": "João Pessoa", "consumo_estimado_reais": 800.0}
+        dados_qualificacao={"cidade": "João Pessoa", "segmento": "Clínica Odontológica"}
     )
     assert lead_resp.id == 1
     assert lead_resp.model_config.get("from_attributes") is True

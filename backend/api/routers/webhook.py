@@ -1,5 +1,7 @@
 import asyncio
 import json
+import hmac
+from typing import Any
 from fastapi import APIRouter, Header, Query, HTTPException, status, Depends
 
 from core.logger import logger
@@ -14,9 +16,6 @@ import schemas
 
 router = APIRouter(prefix="/webhook", tags=["Webhook (Uazapi)"])
 
-
-
-import hmac
 
 async def validar_webhook_secret(
     x_webhook_secret: str | None = Header(None, alias="X-Webhook-Secret"),
@@ -42,7 +41,7 @@ async def validar_webhook_secret(
 @router.post("/", dependencies=[Depends(validar_webhook_secret)])
 @router.post("/uazapi", dependencies=[Depends(validar_webhook_secret)])
 @router.post("/whatsapp", dependencies=[Depends(validar_webhook_secret)])
-async def webhook_uazapi(payload: schemas.UazapiPayload):
+async def webhook_uazapi(payload: schemas.UazapiPayload) -> dict[str, Any]:
     """
     Webhook Receptivo: Enfileira mensagens recebidas no buffer Redis em < 5ms
     e delega o pipeline conversacional para o InboundService em segundo plano.
