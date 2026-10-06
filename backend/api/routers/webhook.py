@@ -9,8 +9,8 @@ from core.config import settings
 from core.database import AsyncSessionLocal
 from core.utils import normalizar_telefone
 from repositories.lead_repository import LeadRepository
-from services.transbordo_service import TransbordoService
-from services.inbound_service import InboundService
+from services.handover import TransbordoService
+from services.inbound import InboundService
 from integrations.redis import buffer as buffer_service
 import schemas
 

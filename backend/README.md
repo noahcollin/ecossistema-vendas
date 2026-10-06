@@ -16,8 +16,8 @@ backend/
 ├── repositories/       # Abstração de persistência (LeadRepository, FollowupRepository)
 ├── services/           # Regras de negócio puras (Inbound, Lead, Followup, Transbordo)
 ├── alembic/            # Migrações versionadas do banco PostgreSQL
-├── models.py           # Entidades relacionais SQLAlchemy 2.0
-├── schemas.py          # Contratos de dados Pydantic V2
+├── models/             # Entidades relacionais SQLAlchemy 2.0 (lead, interaction, followup, enums)
+├── schemas/            # Contratos de dados Pydantic V2 (lead, fsm, auditor, followup, transbordo)
 └── main.py             # Ponto de entrada FastAPI com ciclo de vida assíncrono (lifespan)
 ```
 
@@ -89,7 +89,7 @@ Para aplicar as migrações mais recentes:
 docker exec core-backend uv run alembic upgrade head
 ```
 
-Para gerar uma nova migração a partir de alterações em `models.py`:
+Para gerar uma nova migração a partir de alterações no pacote `models/`:
 ```bash
 docker exec core-backend uv run alembic revision --autogenerate -m "descricao_da_migracao"
 ```

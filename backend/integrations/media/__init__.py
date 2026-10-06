@@ -9,18 +9,18 @@ from typing import Any
 import schemas
 from core.logger import logger
 
-from integrations.media.handlers.base import BaseMediaHandler
-from integrations.media.handlers.strategies import (
+from integrations.media.handlers import (
+    BaseMediaHandler,
     GifOrVideoHandler,
     ImageMediaHandler,
     AudioMediaHandler,
     DocumentMediaHandler,
     TextMediaHandler,
+    descrever_imagem_com_visao,
+    descrever_gif_com_visao,
+    transcrever_audio_com_whisper,
+    extrair_e_resumir_pdf,
 )
-from integrations.media.handlers.vision_handler import descrever_imagem_com_visao
-from integrations.media.handlers.gif_handler import descrever_gif_com_visao
-from integrations.media.handlers.audio_handler import transcrever_audio_com_whisper
-from integrations.media.handlers.pdf_handler import extrair_e_resumir_pdf
 
 __all__ = [
     "MediaPipeline",

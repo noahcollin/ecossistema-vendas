@@ -145,7 +145,7 @@ async def test_4_audio_silencioso_ou_vazio():
     await buffer_service.adicionar_mensagem(tel, msg_audio_vazio.model_dump_json())
 
     # Simula download retornando sem dados decodificáveis
-    with patch("integrations.media.handlers.audio_handler.baixar_arquivo", new_callable=AsyncMock) as mock_dl:
+    with patch("integrations.media.handlers.audio.baixar_arquivo", new_callable=AsyncMock) as mock_dl:
         mock_dl.return_value = {"base64Data": ""}
 
         texto = await InboundService._consolidar_mensagens_buffer(tel)

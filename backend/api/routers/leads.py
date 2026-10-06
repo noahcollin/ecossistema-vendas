@@ -3,12 +3,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
 from core.database import get_db
-from services.lead_service import LeadService
-from services.transbordo_service import TransbordoService
-from services.followup_service import FollowupService
+from core.security import validar_admin_api_key
+from services.lead import LeadService
+from services.handover import TransbordoService
+from services.cadence import FollowupService
 import schemas
 
-router = APIRouter(prefix="/leads", tags=["Leads"])
+router = APIRouter(
+    prefix="/leads",
+    tags=["Leads"],
+    dependencies=[Depends(validar_admin_api_key)]
+)
 
 @router.get("/transbordo/pendentes", response_model=List[schemas.LeadResponse])
 async def listar_leads_em_transbordo(db: AsyncSession = Depends(get_db)):

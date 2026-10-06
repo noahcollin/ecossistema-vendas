@@ -9,12 +9,13 @@ import time
 from core.logger import logger
 from core.database import engine, Base, AsyncSessionLocal
 from core.config import settings
+from core.security import SecurityHeadersMiddleware
 from integrations.redis.buffer import redis_client
 from integrations.uazapi import close_uazapi_client
-from services.followup_service import FollowupService
-from services.inbound_service import InboundService
+from services.cadence import FollowupService
+from services.inbound import InboundService
 
-from api.routers import leads, webhook
+from api.routers import leads, webhook, analytics
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -91,6 +92,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Middleware de cabeçalhos de segurança defensivos (OWASP Secure Headers)
+app.add_middleware(SecurityHeadersMiddleware)
+
 @app.get("/")
 async def root():
     return {"message": "API do Ecossistema de Vendas (Refatorada) operante!"}
@@ -152,3 +156,4 @@ async def health_check(response: Response):
 # Incluindo todos os nossos roteadores ("Gavetas")
 app.include_router(leads.router)
 app.include_router(webhook.router)
+app.include_router(analytics.router)

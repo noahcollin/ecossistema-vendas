@@ -35,9 +35,10 @@ class Settings(BaseSettings):
     SANDBOX_MODE: bool = True
     WHITELIST_PHONE_SUFFIX: str = "91923098"
     
-    # Segurança de Entrada e Webhook
+    # Segurança de Entrada, Webhook e Administração
     WEBHOOK_SECRET_TOKEN: str = ""  # Se definido, exige X-Webhook-Secret ou ?token=
-    CORS_ORIGINS: str = "*"  # Origens permitidas separadas por vírgula (ex: 'https://painel.com,http://localhost:3000')
+    ADMIN_API_KEY: str = ""         # Se definido, protege rotas /leads e /analytics via Bearer ou X-API-Key
+    CORS_ORIGINS: str = "*"         # Origens permitidas separadas por vírgula (ex: 'https://painel.com,http://localhost:3000')
     
     # Logging do Sistema
     LOG_LEVEL: str = "INFO"
