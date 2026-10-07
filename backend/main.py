@@ -15,7 +15,7 @@ from integrations.uazapi import close_uazapi_client
 from services.cadence import FollowupService
 from services.inbound import InboundService
 
-from api.routers import leads, webhook, analytics
+from api.routers import leads, webhook, analytics, settings as settings_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -157,3 +157,4 @@ async def health_check(response: Response):
 app.include_router(leads.router)
 app.include_router(webhook.router)
 app.include_router(analytics.router)
+app.include_router(settings_router.router)

@@ -13,6 +13,7 @@ import os
 import sys
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch, AsyncMock
+from sqlalchemy import text
 
 # Adiciona backend ao sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
@@ -99,6 +100,10 @@ async def test_2_concorrencia_duplo_disparo_followup():
             controle=models.ControleAtendimento.PILOTO_IA
         )
         
+        # Cancela quaisquer outros followups pendentes de outros testes para isolar a asserção
+        await db.execute(text("UPDATE followups_agendados SET status = 'ABORTADO' WHERE status = 'PENDENTE'"))
+        await db.commit()
+
         # Cria follow-up vencido no passado
         passado = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10)
         f_item = await FollowupRepository.criar(
@@ -115,7 +120,9 @@ async def test_2_concorrencia_duplo_disparo_followup():
 
     async def mock_enviar_msg(*args, **kwargs):
         nonlocal disparos_chamados
-        disparos_chamados += 1
+        tel = kwargs.get("telefone") or (args[0] if args else None)
+        if tel == TEST_TEL:
+            disparos_chamados += 1
         await asyncio.sleep(0.05)  # Latência de rede
         return {"status": "sucesso", "dados": {"id": f"msg_mock_{disparos_chamados}"}}
 

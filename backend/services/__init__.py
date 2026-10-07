@@ -16,6 +16,7 @@ from . import cadence
 from . import pacing
 from . import lead
 from . import handover
+from . import settings
 
 # Classes e instâncias exportadas na fachada
 from .inbound import (
@@ -36,6 +37,7 @@ from .handover import (
     TransbordoService,
     DashboardService,
 )
+from .settings import SettingsService
 
 # Módulos concretos para injeção de retrocompatibilidade dinâmica no sys.modules (Zero Ghost Files)
 from .inbound import orchestrator as _inbound_orchestrator
@@ -46,6 +48,7 @@ from .cadence import followup_service as _cadence_followup
 from .pacing import pacing_service as _pacing_impl
 from .lead import lead_service as _lead_impl
 from .handover import transbordo_service as _handover_transbordo
+from .settings import settings_service as _settings_impl
 
 # Aliases dinâmicos transparentes: suporta 'from services.transbordo_service import TransbordoService' e 'getattr(services, "transbordo_service")'
 inbound_service = _inbound_orchestrator
@@ -56,6 +59,7 @@ followup_service = _cadence_followup
 conversation_pacing_service = _pacing_impl
 lead_service = _lead_impl
 transbordo_service = _handover_transbordo
+settings_service = _settings_impl
 
 sys.modules["services.inbound_service"] = _inbound_orchestrator
 sys.modules["services.message_consolidation"] = _inbound_consolidation
@@ -65,6 +69,7 @@ sys.modules["services.followup_service"] = _cadence_followup
 sys.modules["services.conversation_pacing_service"] = _pacing_impl
 sys.modules["services.lead_service"] = _lead_impl
 sys.modules["services.transbordo_service"] = _handover_transbordo
+sys.modules["services.settings_service"] = _settings_impl
 
 __all__ = [
     # Subpacotes
@@ -73,6 +78,7 @@ __all__ = [
     "pacing",
     "lead",
     "handover",
+    "settings",
     # Serviços Inbound
     "InboundService",
     "MessageConsolidator",
@@ -91,4 +97,6 @@ __all__ = [
     # Serviços Handover
     "TransbordoService",
     "DashboardService",
+    # Serviços Settings
+    "SettingsService",
 ]

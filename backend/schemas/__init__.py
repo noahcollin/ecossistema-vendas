@@ -57,6 +57,13 @@ from .analytics import (
     ConversasKPIs,
     DashboardOverviewResponse,
 )
+from .settings import (
+    ProdutoItem,
+    CadenciaConfig,
+    HorarioComercialConfig,
+    OperacaoSettingsResponse,
+    OperacaoSettingsUpdate,
+)
 
 __all__ = [
     # Enums
@@ -104,5 +111,11 @@ __all__ = [
     "FollowupEficaciaKPIs",
     "ConversasKPIs",
     "DashboardOverviewResponse",
+    # Settings & Customizações da Operação
+    "ProdutoItem",
+    "CadenciaConfig",
+    "HorarioComercialConfig",
+    "OperacaoSettingsResponse",
+    "OperacaoSettingsUpdate",
 ]
 

@@ -16,6 +16,7 @@ from .enums import (
 from .lead import Lead
 from .interaction import Interacao
 from .followup import FollowupAgendado
+from .settings import ConfiguracaoOperacional
 
 __all__ = [
     "Base",
@@ -29,4 +30,5 @@ __all__ = [
     "Lead",
     "Interacao",
     "FollowupAgendado",
+    "ConfiguracaoOperacional",
 ]
