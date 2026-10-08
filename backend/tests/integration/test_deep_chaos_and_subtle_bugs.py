@@ -12,6 +12,7 @@ import asyncio
 import os
 import sys
 from datetime import datetime, timezone, timedelta
+from typing import cast
 from unittest.mock import patch, AsyncMock
 from sqlalchemy import text
 
@@ -24,11 +25,11 @@ import models
 import schemas
 from repositories.lead_repository import LeadRepository
 from repositories.followup_repository import FollowupRepository
-from services.lead_service import LeadService
-from services.followup_service import FollowupService
-from services.transbordo_service import TransbordoService
-from services.inbound_service import InboundService
-from integrations.redis import buffer as buffer_service
+from services.lead import LeadService
+from services.cadence import FollowupService
+from services.handover import TransbordoService
+from services.inbound import InboundService
+import integrations.redis.buffer as buffer_service
 from api.routers.webhook import webhook_uazapi
 
 TEST_TEL = "+5583988880001"
@@ -37,8 +38,8 @@ TEST_TEL = "+5583988880001"
 async def cleanup(db, tel: str):
     lead = await LeadRepository.get_by_phone(db, tel)
     if lead:
-        await FollowupRepository.cancelar_pendentes_por_lead(db, lead.id, models.StatusFollowup.ABORTADO)
-        await LeadRepository.delete_interactions_by_lead_id(db, lead.id)
+        await FollowupRepository.cancelar_pendentes_por_lead(db, cast(int, lead.id), models.StatusFollowup.ABORTADO)
+        await LeadRepository.delete_interactions_by_lead_id(db, cast(int, lead.id))
         await LeadRepository.delete_lead(db, lead)
     await buffer_service.obter_e_limpar_buffer(tel)
 
@@ -75,14 +76,15 @@ async def test_1_humano_sem_sender_name_no_whatsapp_web():
 
     async with AsyncSessionLocal() as db:
         lead_db = await LeadRepository.get_by_phone(db, TEST_TEL)
+        assert lead_db is not None, "FALHA: Lead não encontrado no banco de dados"
         print(f"   • Controle do Lead: {lead_db.controle.value}")
-        interacoes = await LeadRepository.get_interactions(db, lead_db.id)
+        interacoes = await LeadRepository.get_interactions(db, cast(int, lead_db.id))
         origens = [i.origem.value for i in interacoes]
         print(f"   • Origens das interações gravadas: {origens}")
 
         assert res.get("status") in ["capturada_intervencao_humana", "iniciado_outbound_humano"], f"FALHA: Resposta inesperada: {res}"
-        assert lead_db.controle == models.ControleAtendimento.HUMANO_ASSUMIU, f"FALHA: Controle esperado HUMANO_ASSUMIU, obtido {lead_db.controle}"
-        assert "EM_ATENDIMENTO_HUMANO" in lead_db.tags, "FALHA: Tag EM_ATENDIMENTO_HUMANO ausente"
+        assert getattr(lead_db, "controle") == models.ControleAtendimento.HUMANO_ASSUMIU, f"FALHA: Controle esperado HUMANO_ASSUMIU, obtido {lead_db.controle}"
+        assert "EM_ATENDIMENTO_HUMANO" in (lead_db.tags or []), "FALHA: Tag EM_ATENDIMENTO_HUMANO ausente"
         assert any(o.lower() == "humano" for o in origens), f"FALHA: Nenhuma interação humana gravada: {origens}"
         print("   ✅ [PASSOU]: Intervenção humana capturada e controle assumido com sucesso!")
 
@@ -108,7 +110,7 @@ async def test_2_concorrencia_duplo_disparo_followup():
         passado = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10)
         f_item = await FollowupRepository.criar(
             db=db,
-            lead_id=lead.id,
+            lead_id=cast(int, lead.id),
             etapa_funil=models.EtapaFunil.NEGOCIACAO,
             tentativa=1,
             agendado_para=passado
@@ -128,7 +130,7 @@ async def test_2_concorrencia_duplo_disparo_followup():
 
     # Simula dois workers executando o lote exatamente no mesmo momento
     with patch("integrations.uazapi.client.enviar_mensagem", side_effect=mock_enviar_msg), \
-         patch("services.followup_service.gerar_mensagem_followup", new_callable=AsyncMock) as mock_gen:
+         patch("services.cadence.followup_service.gerar_mensagem_followup", new_callable=AsyncMock) as mock_gen:
         mock_gen.return_value = "Oi! Como ficou a proposta?"
 
         async def rodar_worker(worker_id: int):
@@ -186,7 +188,7 @@ async def test_4_burn_de_tokens_em_deal_fechado():
             controle=models.ControleAtendimento.PILOTO_IA
         )
         # Salva um dossiê comercial prévio
-        lead.dossie_comercial = {
+        lead.dossie_comercial = {  # type: ignore[assignment]
             "resumo_executivo": "Cliente fechou contrato solar de 10kWp.",
             "win_loss_analise": "GANHO",
             "dica_de_ouro": "Cliente técnico, gostou de detalhes."

@@ -26,12 +26,14 @@ class UazapiMessage(BaseModel):
     messageType: Optional[str] = None
     fileURL: Optional[str] = None
     content: Optional[Any] = None
+    wasSentByApi: Optional[bool] = False
 
 
 class UazapiPayload(BaseModel):
     """Payload raiz do evento de webhook recebido da Uazapi."""
     model_config = ConfigDict(extra="allow")
 
+    event: Optional[str] = None
     instanceName: Optional[str] = None
     chat: Optional[UazapiChat] = None
     message: Optional[UazapiMessage] = None
