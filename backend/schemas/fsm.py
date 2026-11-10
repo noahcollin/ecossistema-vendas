@@ -22,5 +22,6 @@ class LeadAnalysisOutput(BaseModel):
     valor_estimado: Optional[float] = None  # Valor financeiro do deal/orçamento/fatura se mencionado
     tags_sugeridas: list[str] = Field(default_factory=list)  # Tags comportamentais
     opt_out_detectado: bool = False  # True se o cliente pediu remoção/LGPD (pare, não mande mensagem)
+    pronto_fechamento: bool = False  # True quando o cliente confirma o dia e hora da conversa de 20 min com o time ou pede atendente humano imediato
     justificativa: str  # Justificativa da decisão analítica
     dados_qualificacao: DadosQualificacao  # Atributos estruturados do nicho

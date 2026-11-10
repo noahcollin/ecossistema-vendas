@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Optional
 
 from core.database import get_db
 from core.security import validar_admin_api_key
@@ -16,9 +16,13 @@ router = APIRouter(
 )
 
 @router.get("/transbordo/pendentes", response_model=List[schemas.LeadResponse])
-async def listar_leads_em_transbordo(db: AsyncSession = Depends(get_db)):
-    """Lista todos os leads que estão aguardando intervenção ou em atendimento humano."""
-    return await TransbordoService.listar_pendentes(db)
+async def listar_leads_em_transbordo(
+    limit: Optional[int] = Query(default=100, ge=1, le=500, description="Limite máximo de registros retornados"),
+    offset: int = Query(default=0, ge=0, description="Deslocamento para paginação"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Lista leads que estão aguardando intervenção ou em atendimento humano (com paginação defensiva)."""
+    return await TransbordoService.listar_pendentes(db, limit=limit, offset=offset)
 
 @router.post("/{lead_id}/transbordo/assumir", response_model=schemas.LeadResponse)
 async def assumir_transbordo(
@@ -88,9 +92,13 @@ async def criar_lead(lead: schemas.LeadCreate, db: AsyncSession = Depends(get_db
     return await LeadService.criar_lead(db, lead)
 
 @router.get("/", response_model=List[schemas.LeadResponse])
-async def listar_leads(db: AsyncSession = Depends(get_db)):
-    """Lista todos os clientes (Leads) cadastrados."""
-    return await LeadService.listar_leads(db)
+async def listar_leads(
+    limit: Optional[int] = Query(default=200, ge=1, le=500, description="Limite máximo de leads por página"),
+    offset: int = Query(default=0, ge=0, description="Deslocamento para paginação"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Lista os clientes (Leads) cadastrados com suporte a paginação."""
+    return await LeadService.listar_leads(db, limit=limit, offset=offset)
 
 @router.get("/{lead_id}", response_model=schemas.LeadResponse)
 async def obter_lead(lead_id: int, db: AsyncSession = Depends(get_db)):

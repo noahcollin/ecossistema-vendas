@@ -1,64 +1,121 @@
-import React, { useState } from 'react'
-import { Header, type ActiveTab } from './components/Header'
-import { GrainOverlay } from './components/GrainOverlay'
-import { OverviewView } from './views/OverviewView'
-import { LeadsView } from './views/LeadsView'
-import { SettingsView } from './views/SettingsView'
+import React, { useCallback, useEffect, useState } from 'react';
+import { GrainyGradient } from './components/GrainyGradient';
+import { Header } from './components/Header';
+import { AuthKeyModal } from './components/modals/AuthKeyModal';
+import { useHashNavigation } from './hooks/useHashNavigation';
+import { useSystemHealth } from './hooks/useSystemHealth';
+import { fetchPendingHandoverLeads, getStoredApiKey } from './services/api';
+import { LeadsView } from './views/LeadsView';
+import { OverviewView } from './views/OverviewView';
+import { SettingsView } from './views/SettingsView';
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('overview')
+  const { activeTab, selectedLeadId, navigateToTab, navigateToLead } = useHashNavigation();
+  const { health, refreshHealth } = useSystemHealth();
 
-  const handleTabChange = (tab: ActiveTab) => {
-    setActiveTab(tab)
-    window.scrollTo({ top: 0, behavior: 'instant' })
-  }
+  const [pendingHandoverCount, setPendingHandoverCount] = useState<number>(0);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [wasUnauthorized, setWasUnauthorized] = useState<boolean>(false);
+  const [authRevision, setAuthRevision] = useState<number>(0);
+
+  const syncPendingHandovers = useCallback(async () => {
+    try {
+      const pending = await fetchPendingHandoverLeads();
+      setPendingHandoverCount(pending.filter((l) => l.controle === 'TRANSBORDO_SOLICITADO').length);
+    } catch {
+      // Silencioso caso backend esteja offline ou aguardando chave
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const poll = () => {
+      fetchPendingHandoverLeads()
+        .then((pending) => {
+          if (active) {
+            setPendingHandoverCount(
+              pending.filter((l) => l.controle === 'TRANSBORDO_SOLICITADO').length
+            );
+          }
+        })
+        .catch(() => {
+          // Silencioso caso backend esteja offline ou aguardando chave
+        });
+    };
+
+    poll();
+    const interval = window.setInterval(poll, 30000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [authRevision, activeTab]);
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setWasUnauthorized(true);
+      setIsAuthModalOpen(true);
+    };
+    window.addEventListener('ev:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('ev:unauthorized', handleUnauthorized);
+  }, []);
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-void)' }}>
-      {/* Textura de Grão Analógico Editorial */}
-      <GrainOverlay />
+    <>
+      <GrainyGradient />
 
-      {/* Header Estilo Jornal */}
-      <Header activeTab={activeTab} setActiveTab={handleTabChange} />
+      <div className="app-shell">
+        <Header
+          activeTab={activeTab}
+          onSelectTab={navigateToTab}
+          pendingHandoverCount={pendingHandoverCount}
+          health={health}
+          hasSessionKey={Boolean(getStoredApiKey())}
+          onOpenAuthModal={() => {
+            setWasUnauthorized(false);
+            setIsAuthModalOpen(true);
+          }}
+        />
 
-      {/* Corpo Principal da Página */}
-      <main
-        style={{
-          flex: 1,
-          maxWidth: '1440px',
-          width: '100%',
-          margin: '0 auto',
-          padding: '48px 40px 80px 40px',
+        <main className="main-container" key={authRevision}>
+          {activeTab === 'overview' && (
+            <OverviewView
+              onOpenLead={(leadId) => navigateToLead(leadId)}
+              onOpenLeadsTab={() => navigateToTab('leads')}
+            />
+          )}
+
+          {activeTab === 'leads' && (
+            <LeadsView
+              selectedLeadId={selectedLeadId}
+              onSelectLeadId={(leadId) => navigateToLead(leadId)}
+            />
+          )}
+
+          {activeTab === 'settings' && (
+            <SettingsView
+              health={health}
+              onRefreshHealth={() => {
+                void refreshHealth();
+                void syncPendingHandovers();
+              }}
+            />
+          )}
+        </main>
+      </div>
+
+      <AuthKeyModal
+        isOpen={isAuthModalOpen}
+        wasUnauthorized={wasUnauthorized}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSaved={() => {
+          setWasUnauthorized(false);
+          setAuthRevision((r) => r + 1);
+          void refreshHealth();
         }}
-      >
-        {activeTab === 'overview' && <OverviewView />}
-        {activeTab === 'leads' && <LeadsView />}
-        {activeTab === 'settings' && <SettingsView />}
-      </main>
+      />
+    </>
+  );
+};
 
-      {/* Rodapé Clássico de Imprensa */}
-      <footer
-        style={{
-          borderTop: '2px solid var(--border-rule)',
-          padding: '32px 40px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'baseline',
-          fontSize: '14px',
-          color: 'var(--text-muted)',
-          backgroundColor: 'var(--bg-void)',
-        }}
-      >
-        <div style={{ fontFamily: 'var(--font-headline)', fontSize: '18px', fontWeight: 800, color: 'var(--text-headline)' }}>
-          ECOSSISTEMA DE VENDAS
-        </div>
-
-        <div style={{ fontFamily: 'var(--font-body)', fontSize: '13px' }}>
-          INTELIGENTTE © 2026 — TODOS OS DIREITOS RESERVADOS
-        </div>
-      </footer>
-    </div>
-  )
-}
-
-export default App
+export default App;

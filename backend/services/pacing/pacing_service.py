@@ -31,7 +31,7 @@ class ConversationPacingService:
     Atende aos princípios SOLID (SRP, OCP) e POO.
     
     Substitui a trava binária por uma evolução natural de postura comercial:
-    - O agente é nosso funcionário humano de vendas ('Seu Zé').
+    - O agente é nosso assistente comercial ('Eli Gentil').
     - Em conversas longas na mesma etapa, a IA aumenta a assertividade para fechar ou desqualificar.
     - Elimina transbordo desnecessário para humanos, preservando a autonomia Zero-Touch.
     """
@@ -91,13 +91,12 @@ class ConversationPacingService:
                 diretriz_proatividade=None
             )
 
-        # 2. ZONA AMARELA: Condução ativa para fechamento (Seu Zé toma as rédeas)
+        # 2. ZONA AMARELA: Condução ativa para o diagnóstico (Eli Gentil toma as rédeas)
         if contagem < th_decisive:
             diretriz = (
-                f"⚠️ [POSTURA ATIVA DE VENDAS]: A conversa já teve {contagem} trocas de mensagens nesta etapa ({etapa.value}). "
-                "Não responda apenas como um atendente tirando dúvidas passivamente. "
-                "Valide o entendimento, ancore o valor comercial da solução e conduza ativamente para o próximo passo "
-                "(ex: solicitar sinal verde para contratação, agendar demonstração prática ou definir o plano ideal)."
+                f"⚠️ [POSTURA ATIVA DE VENDAS — ELI GENTIL]: A conversa já teve {contagem} trocas de mensagens nesta etapa ({etapa.value}). "
+                "Seja curto e direto (1 a 2 linhas). Conclua a validação pendente e proponha diretamente a conversa de 20 minutos com o seu time: "
+                "'Hoje à tarde ou amanhã de manhã?' (nunca cite o nome de quem fecha)."
             )
             return PacingEvaluation(
                 mensagens_na_etapa=contagem,
@@ -109,10 +108,9 @@ class ConversationPacingService:
         # 3. ZONA LARANJA: Chamada decisiva final (não fica em cima do muro)
         if contagem < th_max:
             diretriz = (
-                f"🚨 [CHAMADA DECISIVA DE FECHAMENTO]: A conversa está com {contagem} mensagens nesta etapa sem avanço. "
-                "Seja extremamente direto, atencioso e transparente: faça uma pergunta clara e decisiva de fechamento. "
-                "Pergunte com franqueza se o cliente deseja avançar agora ou se prefere pausar o contato para avaliar com calma em outro momento. "
-                "Não estenda a conversa com detalhes secundários."
+                f"🚨 [CHAMADA DECISIVA DE FECHAMENTO — ELI GENTIL]: A conversa está com {contagem} mensagens nesta etapa sem avanço. "
+                "Em no máximo 2 linhas diretas, pergunte de forma objetiva se faz sentido marcar os 20 minutos com o time para amanhã às 10h "
+                "ou se prefere deixar para mais para frente. Nunca cite o nome de quem fecha."
             )
             return PacingEvaluation(
                 mensagens_na_etapa=contagem,
@@ -121,12 +119,10 @@ class ConversationPacingService:
                 diretriz_proatividade=diretriz
             )
 
-        # 4. ZONA VERMELHA: Trava FinOps atingida (desqualificação graciosa e humanizada)
+        # 4. ZONA VERMELHA: Trava FinOps atingida (encerramento limpo na voz do Eli Gentil)
         despedida = (
-            f"Super entendo, {primeiro_nome}! Como vejo que você ainda tem dúvidas ou talvez este não seja o momento ideal "
-            "para a sua empresa implementar essa automação, vou deixar você totalmente à vontade para não tomar seu tempo. "
-            "Se no futuro fizer sentido destravar essa operação, as portas continuam abertas e você já tem meu contato direto por aqui. "
-            "Um grande abraço e muito sucesso nos seus negócios!"
+            f"{primeiro_nome}, vou encerrar por aqui para não te encher. "
+            "Se fizer sentido mais para frente, é só chamar."
         )
         return PacingEvaluation(
             mensagens_na_etapa=contagem,

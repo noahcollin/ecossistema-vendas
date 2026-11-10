@@ -2,7 +2,7 @@
 Módulo de Agentes Especializados do Ecossistema de Vendas.
 Separação de papéis:
 - lead_analyzer_agent: Analista de Perfil, Memória e Máquina de Estados (FSM)
-- sales_closer_agent: Vendedor Consultivo Frontline ('Seu Zé')
+- sales_closer_agent: Assistente Consultivo SDR Frontline ('Eli Gentil')
 """
 
 from .lead_analyzer_agent import analisar_lead_e_fsm as analisar_lead_e_fsm

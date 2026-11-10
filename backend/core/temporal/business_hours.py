@@ -108,6 +108,28 @@ class BusinessHoursPolicy:
         return ajustado_local - cls.OFFSET_BRASIL
 
     @classmethod
+    def esta_em_horario_comercial(cls, dt_utc: Optional[datetime] = None) -> bool:
+        """Verifica se o instante UTC informado (ou agora) encontra-se dentro do expediente comercial brasileiro."""
+        alvo_utc = dt_utc or datetime.now(timezone.utc).replace(tzinfo=None)
+        if alvo_utc.tzinfo is not None:
+            alvo_utc = alvo_utc.astimezone(timezone.utc).replace(tzinfo=None)
+
+        dt_local = alvo_utc + cls.OFFSET_BRASIL
+        wd = dt_local.weekday()
+        t = dt_local.time()
+
+        inicio_util = cls._parse_hhmm(settings.BUSINESS_HOURS_START)
+        fim_util = cls._parse_hhmm(settings.BUSINESS_HOURS_END)
+        inicio_sabado = cls._parse_hhmm(settings.BUSINESS_HOURS_SATURDAY_START)
+        fim_sabado = cls._parse_hhmm(settings.BUSINESS_HOURS_SATURDAY_END)
+
+        if wd == 6:
+            return False
+        if wd == 5:
+            return inicio_sabado <= t <= fim_sabado
+        return inicio_util <= t <= fim_util
+
+    @classmethod
     def calcular_momento_disparo(cls, tentativa: int, base_time: Optional[datetime] = None) -> datetime:
         """
         Calcula o próximo momento de disparo somando o intervalo da tentativa
@@ -119,8 +141,19 @@ class BusinessHoursPolicy:
             horas = settings.FOLLOWUP_INTERVAL_1_HOURS
         elif tentativa == 2:
             horas = settings.FOLLOWUP_INTERVAL_2_HOURS
-        else:
+        elif tentativa == 3:
             horas = settings.FOLLOWUP_INTERVAL_3_HOURS
+        else:
+            # Suporta cadências estendidas (> 3 toques configurados na Sala de Máquinas)
+            try:
+                from services.settings import SettingsService
+                toques = SettingsService.obter_cache_memoria().cadencia.intervalos_toques
+                if toques and tentativa <= len(toques):
+                    horas = float(toques[tentativa - 1])
+                else:
+                    horas = float(settings.FOLLOWUP_INTERVAL_3_HOURS)
+            except Exception:
+                horas = float(settings.FOLLOWUP_INTERVAL_3_HOURS)
 
         dt_bruta = agora + timedelta(hours=horas)
         return cls.ajustar_para_horario_comercial(dt_bruta)

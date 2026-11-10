@@ -138,12 +138,52 @@ class FollowupRepository:
         followup: models.FollowupAgendado,
         mensagem_texto: str
     ) -> models.FollowupAgendado:
-        """Marca o follow-up como disparado com sucesso, registrando o texto enviado."""
+        """Marca o follow-up como disparado com sucesso, registrando o texto enviado e carimbo UTC."""
         followup.status = models.StatusFollowup.DISPARADO
         followup.mensagem_disparada = mensagem_texto
+        followup.atualizado_em = datetime.now(timezone.utc).replace(tzinfo=None)
         await db.commit()
         await db.refresh(followup)
         return followup
+
+    @staticmethod
+    async def obter_leads_maduros_para_congelamento(
+        db: AsyncSession,
+        max_tentativas: int,
+        data_corte_utc: datetime,
+        limite: int = 30
+    ) -> List[models.Lead]:
+        """
+        Retorna leads ainda EM_ANDAMENTO e em PILOTO_IA cujo último toque (>= max_tentativas)
+        já foi DISPARADO antes de `data_corte_utc` sem nova resposta do cliente.
+        """
+        query = (
+            select(models.FollowupAgendado)
+            .where(
+                models.FollowupAgendado.status == models.StatusFollowup.DISPARADO,
+                models.FollowupAgendado.tentativa >= max_tentativas,
+                models.FollowupAgendado.atualizado_em <= data_corte_utc,
+            )
+            .options(selectinload(models.FollowupAgendado.lead))
+            .order_by(models.FollowupAgendado.atualizado_em.asc())
+            .limit(limite)
+        )
+        resultado = await db.execute(query)
+        itens = list(resultado.scalars().all())
+        leads_elegiveis: list[models.Lead] = []
+        vistos: set[int] = set()
+        for item in itens:
+            lead = item.lead
+            if (
+                lead is not None
+                and lead.id not in vistos
+                and not lead.opt_out
+                and lead.desfecho == models.DesfechoLead.EM_ANDAMENTO
+                and lead.controle == models.ControleAtendimento.PILOTO_IA
+            ):
+                vistos.add(lead.id)
+                leads_elegiveis.append(lead)
+        return leads_elegiveis
 
     @staticmethod
     async def atualizar_status(

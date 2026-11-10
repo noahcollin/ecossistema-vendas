@@ -24,7 +24,12 @@ async def transcrever_audio_com_whisper(base64_audio: str) -> str:
         audio_bytes = base64.b64decode(base64_audio)
         
         buffer_audio = io.BytesIO(audio_bytes)
-        buffer_audio.name = "audio.mp3"
+        if audio_bytes.startswith(b"OggS"):
+            buffer_audio.name = "audio.ogg"
+        elif audio_bytes.startswith(b"RIFF"):
+            buffer_audio.name = "audio.wav"
+        else:
+            buffer_audio.name = "audio.mp3"
         
         transcricao = await openai_client.audio.transcriptions.create(
             model=settings.MODEL_WHISPER,

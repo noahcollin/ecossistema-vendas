@@ -1,6 +1,6 @@
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, cast, String
 from sqlalchemy.exc import IntegrityError
 import models
 
@@ -49,6 +49,30 @@ class LeadRepository:
     ) -> List[models.Lead]:
         """Retorna todos os leads cadastrados ordenados por criação descendente com suporte opcional a paginação."""
         query = select(models.Lead).order_by(models.Lead.criado_em.desc())
+        if limit is not None:
+            query = query.limit(limit).offset(offset)
+        resultado = await db.execute(query)
+        return list(resultado.scalars().all())
+
+    @staticmethod
+    async def list_pending_handover(
+        db: AsyncSession,
+        limit: Optional[int] = None,
+        offset: int = 0
+    ) -> List[models.Lead]:
+        """Lista leads aguardando transbordo ou em atendimento humano ativo (isolando SQL no repositório)."""
+        query = (
+            select(models.Lead)
+            .where(
+                cast(models.Lead.controle, String).in_([
+                    models.ControleAtendimento.TRANSBORDO_SOLICITADO.value,
+                    models.ControleAtendimento.HUMANO_ASSUMIU.value,
+                    "TRANSBORDO_SOLICITADO",
+                    "HUMANO_ASSUMIU",
+                ])
+            )
+            .order_by(models.Lead.criado_em.desc())
+        )
         if limit is not None:
             query = query.limit(limit).offset(offset)
         resultado = await db.execute(query)

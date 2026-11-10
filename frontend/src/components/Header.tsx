@@ -1,117 +1,132 @@
-import React, { useState, useEffect } from 'react'
-
-export type ActiveTab = 'overview' | 'leads' | 'settings'
+import React from 'react';
+import type { AppTab } from '../hooks/useHashNavigation';
+import type { SystemHealthResponse } from '../types/telemetry';
 
 interface HeaderProps {
-  activeTab: ActiveTab
-  setActiveTab: (tab: ActiveTab) => void
+  activeTab: AppTab;
+  onSelectTab: (tab: AppTab) => void;
+  pendingHandoverCount: number;
+  health: SystemHealthResponse | null;
+  hasSessionKey: boolean;
+  onOpenAuthModal: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
-  const [time, setTime] = useState<string>('')
+export const Header: React.FC<HeaderProps> = ({
+  activeTab,
+  onSelectTab,
+  pendingHandoverCount,
+  health,
+  hasSessionKey,
+  onOpenAuthModal,
+}) => {
+  const statusKind =
+    !health || health.status === 'offline'
+      ? 'is-critical'
+      : health.status === 'degraded'
+        ? 'is-degraded'
+        : '';
 
-  useEffect(() => {
-    const updateTime = () => {
-      const now = new Date()
-      setTime(
-        now.toLocaleTimeString('pt-BR', {
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: false,
-        })
-      )
-    }
-    updateTime()
-    const timer = setInterval(updateTime, 1000)
-    return () => clearInterval(timer)
-  }, [])
+  const statusLabel =
+    !health
+      ? 'VERIFICANDO...'
+      : health.status === 'offline'
+        ? 'API OFFLINE'
+        : health.status === 'degraded'
+          ? 'MODO DEGRADADO'
+          : 'UAZAPI · OPERANTE';
 
   return (
-    <header
-      style={{
-        backgroundColor: 'rgba(8, 8, 10, 0.75)',
-        backdropFilter: 'blur(12px)',
-        borderBottom: '1.5px solid var(--border-rule)',
-        padding: '24px 48px',
-        position: 'sticky',
-        top: 0,
-        zIndex: 100,
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}
-      >
-        {/* Logomarca Executiva com Título Bem Grosso */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+    <header className="institutional-header">
+      <div className="prestige-beam" />
+      <div className="header-inner">
+        <div className="brand-cluster">
+          <div className="brand-mark" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M4 17L10 11L14 15L20 7"
+                stroke="#F8FAFC"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <circle cx="20" cy="7" r="2.5" fill="#FF1E46" />
+              <circle cx="4" cy="17" r="2.2" fill="#1E6BFF" />
+            </svg>
+          </div>
           <div>
-            <div
-              style={{
-                fontFamily: 'var(--font-title)',
-                fontSize: '28px',
-                fontWeight: 900,
-                letterSpacing: '-0.03em',
-                color: 'var(--text-headline)',
-                lineHeight: 1,
-              }}
-            >
-              ECOSSISTEMA DE VENDAS
-            </div>
-            <div
-              style={{
-                fontSize: '12px',
-                fontWeight: 700,
-                color: 'var(--text-muted)',
-                marginTop: '6px',
-                letterSpacing: '0.06em',
-                textTransform: 'uppercase',
-              }}
-            >
-              VISUALIZADOR OPERACIONAL & CENTRO DE CONTROLE
-            </div>
+            <div className="brand-wordmark">INTELIGENTTE // ECOSSISTEMA</div>
+            <div className="brand-sub">AUTONOMOUS REVENUE &amp; CLOSER COMMAND</div>
           </div>
         </div>
 
-        {/* Navegação Business Robusta */}
-        <nav style={{ display: 'flex', gap: '12px' }}>
+        <nav className="nav-tabs" aria-label="Navegação Principal">
           <button
-            onClick={() => setActiveTab('overview')}
-            className={`btn-business ${activeTab === 'overview' ? 'btn-business-blue' : ''}`}
+            type="button"
+            className={`nav-tab-btn ${activeTab === 'overview' ? 'is-active' : ''}`}
+            onClick={() => onSelectTab('overview')}
           >
-            VISÃO GERAL
+            Visão Executiva
           </button>
 
           <button
-            onClick={() => setActiveTab('leads')}
-            className={`btn-business ${activeTab === 'leads' ? 'btn-business-blue' : ''}`}
+            type="button"
+            className={`nav-tab-btn ${activeTab === 'leads' ? 'is-active' : ''}`}
+            onClick={() => onSelectTab('leads')}
           >
-            DOSSIÊS DOS LEADS
+            <span>Carteira &amp; Dossiê</span>
+            {pendingHandoverCount > 0 && (
+              <span className="nav-tab-count" title="Leads aguardando Closer humano">
+                {pendingHandoverCount}
+              </span>
+            )}
           </button>
 
           <button
-            onClick={() => setActiveTab('settings')}
-            className={`btn-business ${activeTab === 'settings' ? 'btn-business-blue' : ''}`}
+            type="button"
+            className={`nav-tab-btn ${activeTab === 'settings' ? 'is-active' : ''}`}
+            onClick={() => onSelectTab('settings')}
           >
-            CONFIGURAÇÕES DA OPERAÇÃO
+            Sala de Máquinas
           </button>
         </nav>
 
-        {/* Relógio e Status */}
-        <div
-          style={{
-            fontSize: '14px',
-            fontWeight: 700,
-            color: 'var(--text-muted)',
-            fontFamily: 'var(--font-mono)',
-          }}
-        >
-          {time} BRT
+        <div className="telemetry-strip">
+          {health?.ia_silenciada_global && (
+            <span className="badge badge-closer" title="Kill-Switch global ativo">
+              IA PAUSADA
+            </span>
+          )}
+
+          <div
+            className="status-pill"
+            title={
+              health?.alerta_operacional ??
+              `Gateway: ${(health?.gateway_whatsapp ?? 'uazapi').toUpperCase()} | Buffers Redis: ${health?.buffers_pendentes ?? 0}`
+            }
+          >
+            <span className={`status-dot ${statusKind}`} />
+            <span>{statusLabel}</span>
+            {health?.latency_ms !== undefined && (
+              <span style={{ color: 'var(--text-dim)' }}>{health.latency_ms}ms</span>
+            )}
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={onOpenAuthModal}
+            title="Configurar chave administrativa da sessão (X-API-Key)"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="8" cy="15" r="4" />
+              <path d="M10.85 12.15L19 4" />
+              <path d="M18 5L20 7" />
+              <path d="M15 8L17 10" />
+            </svg>
+            <span>{hasSessionKey ? 'Chave Ativa' : 'Chave API'}</span>
+          </button>
         </div>
       </div>
     </header>
-  )
-}
+  );
+};

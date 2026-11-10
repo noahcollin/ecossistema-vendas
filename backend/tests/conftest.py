@@ -64,6 +64,8 @@ class MockCacheBufferGateway:
     def __init__(self) -> None:
         self.buffers: dict[str, list[str]] = {}
         self.timestamps: dict[str, str] = {}
+        self.bot_markers: set[str] = set()
+        self.locks: dict[str, str] = {}
         self.counter = 0
 
     async def adicionar_mensagem(self, telefone: str, texto: str) -> str:
@@ -80,6 +82,46 @@ class MockCacheBufferGateway:
 
     async def verificar_se_e_ultima(self, telefone: str, token_disparado: str | float) -> bool:
         return str(self.timestamps.get(telefone, "")) == str(token_disparado)
+
+    async def listar_telefones_com_buffer(self) -> list[str]:
+        return [tel for tel, msgs in self.buffers.items() if msgs]
+
+    async def contar_buffers_pendentes(self) -> int:
+        return len(await self.listar_telefones_com_buffer())
+
+    async def registrar_marcador_bot(self, msg_id: str, ttl_segundos: int = 120) -> None:
+        if msg_id:
+            self.bot_markers.add(msg_id)
+
+    async def verificar_marcador_bot(self, msg_id: str) -> bool:
+        if not msg_id:
+            return False
+        if msg_id in self.bot_markers:
+            return True
+        if ":" in str(msg_id):
+            return str(msg_id).split(":")[-1] in self.bot_markers
+        return False
+
+    async def adquirir_lock(self, chave: str, ttl_segundos: int = 45) -> str | None:
+        if chave in self.locks:
+            return None
+        self.counter += 1
+        token = f"lock_{self.counter}"
+        self.locks[chave] = token
+        return token
+
+    async def liberar_lock(self, chave: str, token: str) -> bool:
+        if self.locks.get(chave) == token:
+            del self.locks[chave]
+            return True
+        return False
+
+    async def expurgar_filas_volateis(self) -> int:
+        removidas = len(self.buffers) + len(self.timestamps) + len(self.locks)
+        self.buffers.clear()
+        self.timestamps.clear()
+        self.locks.clear()
+        return removidas
 
 
 @pytest_asyncio.fixture(scope="session")

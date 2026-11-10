@@ -3,16 +3,36 @@ Módulo do Agente Auditor de Negócios (DealAuditorAgent).
 Realiza a análise retrospectiva completa da conversa do cliente e produz
 o Dossiê Executivo de Vendas (Win/Loss Analysis, O que agradou/desagradou,
 dica de ouro para o atendimento humano e feedback para a empresa).
+Inclui guarda de janela máxima de contexto para blindagem FinOps e prevenção de ContextOverflow.
 """
 
 import json
 from typing import List
-from core.openai_client import openai_client
+from core.openai_client import openai_client, is_openai_quota_error
 from core.logger import logger
 from core.config import settings
 import models
 import schemas
 from .prompts import PROMPT_SISTEMA_AUDITOR
+
+
+def _recortar_historico_auditoria(
+    historico_completo: List[models.Interacao],
+    limite_maximo: int
+) -> tuple[List[models.Interacao], int]:
+    """
+    Preserva as primeiras 4 interações (abertura/canal de aquisição) e as últimas
+    (limite_maximo - 4) interações quando a conversa excede o teto FinOps de tokens.
+    """
+    total = len(historico_completo)
+    if total <= limite_maximo or limite_maximo <= 8:
+        return list(historico_completo), 0
+
+    abertura = list(historico_completo[:4])
+    recentes = list(historico_completo[-(limite_maximo - 4):])
+    omitidas = total - len(abertura) - len(recentes)
+    return abertura + recentes, omitidas
+
 
 async def auditar_jornada_lead(
     lead: models.Lead,
@@ -23,9 +43,15 @@ async def auditar_jornada_lead(
     com Structured Outputs (garantia 100% de tipagem Pydantic V2).
     """
     try:
-        # Formata o histórico cronológico de todas as mensagens
-        mensagens_formatadas = []
-        for interacao in historico_completo:
+        limite_auditoria = max(int(settings.JANELA_HISTORICO_MAX) * 3, 60)
+        historico_recortado, omitidas = _recortar_historico_auditoria(historico_completo, limite_auditoria)
+
+        mensagens_formatadas: list[str] = []
+        for idx, interacao in enumerate(historico_recortado):
+            if omitidas > 0 and idx == 4:
+                mensagens_formatadas.append(
+                    f"[... {omitidas} interações intermediárias omitidas pela guarda FinOps; contexto consolidado na Ficha do Lead ...]"
+                )
             if interacao.origem == models.InteracaoOrigem.CLIENTE:
                 remetente = "Cliente"
             elif interacao.origem == models.InteracaoOrigem.HUMANO:
@@ -41,7 +67,7 @@ async def auditar_jornada_lead(
         dados_qualif = lead.dados_qualificacao or {}
         resumo_atual = lead.resumo_perfil or "Sem resumo prévio."
         valor_fmt = f"R$ {lead.valor_estimado:,.2f}" if (hasattr(lead, "valor_estimado") and lead.valor_estimado is not None) else "Não informado"
-        
+
         prompt_usuario = f"""
 [DADOS ATUAIS DO CLIENTE NO BANCO]
 Nome: {lead.nome or 'Não identificado'}
@@ -62,7 +88,7 @@ Tags Registradas: {lead.tags or []}
 [DADOS ESTRUTURADOS DE QUALIFICAÇÃO]
 {json.dumps(dados_qualif, ensure_ascii=False)}
 
-[HISTÓRICO COMPLETO DA CONVERSA]
+[HISTÓRICO DA CONVERSA ({len(historico_completo)} mensagens totais)]
 {dialogo_completo}
 """
 
@@ -93,20 +119,11 @@ Tags Registradas: {lead.tags or []}
         return dossie
 
     except Exception as e:
-        err_str = str(e).lower()
-        termos_cota = [
-            "insufficient_quota",
-            "quota_exceeded",
-            "exceeded your current quota",
-            "credit_balance_exhausted",
-            "no credits remaining",
-            "billing_hard_limit_reached"
-        ]
-        if any(termo in err_str for termo in termos_cota):
+        if is_openai_quota_error(e):
             logger.critical(f"[AUDITOR COMERCIAL - COTA ESGOTADA] 🚨 Falha por esgotamento de créditos da OpenAI para {lead.telefone}: {e}")
         else:
             logger.error(f"[AUDITOR COMERCIAL ERRO] ❌ Falha ao auditar lead {lead.telefone}: {e}", exc_info=True)
-        # Fallback defensivo e resiliente
+
         desfecho_padrao = lead.desfecho if hasattr(lead, "desfecho") and lead.desfecho else models.DesfechoLead.EM_ANDAMENTO
         tipo_entrada_padrao = lead.tipo_entrada.value if hasattr(lead, "tipo_entrada") and lead.tipo_entrada else "INBOUND"
         origem_padrao = lead.origem_canal if hasattr(lead, "origem_canal") and lead.origem_canal else "WHATSAPP_DIRETO"

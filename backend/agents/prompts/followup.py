@@ -1,10 +1,25 @@
 """
-Diretrizes e Orientações para a Cadência de Follow-Up Automático (RF11 & RF12 do PRD).
-Regras de toques para quebra de inércia, agregação de valor e break-up cordial.
+Diretrizes e Orientações Oficiais para a Cadência de Follow-Up do Eli Gentil (Etapa 6).
+Baseado no documento 'Eli Gentil — Avatar e Tom de Voz (Inteligentte Lab) (1).md':
+Objetivo: reabrir sem pedir desculpa; máximo 3 toques; nunca mandar 'oi, sumiu?'; nunca citar nome de quem fecha ('meu time').
 """
 
 ORIENTACOES_FOLLOWUP = {
-    1: "TOQUE 1 (Quebra de inércia - ~2h sem resposta): Seja muito simpático, breve e descontraído (1 a 2 frases). Pergunte se o cliente conseguiu ver o que foi conversado ou se ficou alguma dúvida prática sobre a IA no dia a dia.",
-    2: "TOQUE 2 (Agregação de valor - ~24h sem resposta): Retome o ponto principal ou gargalo com leveza (ex: recuperar clientes do fim de semana ou desafogar a equipe). Mostre como a implantação é rápida e pergunte se quer ver funcionando.",
-    3: "TOQUE 3 (Break-up cordial - ~72h sem resposta): Reconheça que a rotina de gestão é corrida. Avise gentilmente que vai pausar o contato pra não incomodar, mas que as portas continuam abertas quando quiser destravar essa parte. Deseje sucesso genuíno."
+    1: (
+        "TOQUE 1 (Mesma tarde / 1º toque — Retomada direta em 1 linha sem pedir desculpas): "
+        "Chame pelo primeiro nome e convide diretamente para marcar a conversa com o time: "
+        "'[Nome], vamos marcar a conversa com o time para amanhã?' "
+        "(Se a conversa parou antes no meio das perguntas de mapeamento, retome a pergunta em aberto em 1 linha curta). "
+        "Sem 'desculpe incomodar', sem 'oi, sumiu?' e sem citar o nome de quem fecha."
+    ),
+    2: (
+        "TOQUE 2 (Manhã seguinte / 2º toque — 1 linha direta): "
+        "Envie exatamente no padrão do Eli: "
+        "'Oi, [Nome]. Chegou a conferir um horário para a nossa conversa?'"
+    ),
+    3: (
+        "TOQUE 3 (Encerramento limpo sem pedir desculpa): "
+        "Envie exatamente no padrão do Eli em 1 a 2 linhas: "
+        "'Vou encerrar por aqui para não te encher. Se fizer sentido mais para frente, é só chamar.'"
+    ),
 }

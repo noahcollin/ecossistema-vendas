@@ -1,27 +1,27 @@
 """
-Serviço de Cockpit e Ações de Dashboard do Operador Humano (Clean Architecture).
+Serviço de Cockpit e Ações de Dashboard do Operador Humano (Clean Architecture / DIP).
 Isola as operações manuais de painel: assumir lead, devolver para IA,
 envio de mensagem direta e listagem de pendências de atendimento.
 """
 
 from typing import List, Optional
-from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, cast, String
 from fastapi import HTTPException
 
 from core.logger import logger
+from core.protocols import WhatsAppGatewayProtocol, CacheBufferProtocol
 from repositories.lead_repository import LeadRepository
 from services.cadence import FollowupService
-from integrations.uazapi import client as uazapi_service
-from integrations.redis.buffer import redis_client
+from integrations.uazapi.gateway import default_uazapi_gateway
+from integrations.redis.gateway import default_redis_buffer_gateway
 import models
 
 
 class DashboardService:
-    """
-    Camada de serviço especializada para o painel de controle e operações humanas.
-    """
+    """Camada de serviço especializada para o painel de controle e operações humanas."""
+
+    whatsapp_gateway: WhatsAppGatewayProtocol = default_uazapi_gateway
+    buffer_gateway: CacheBufferProtocol = default_redis_buffer_gateway
 
     @staticmethod
     async def assumir_atendimento(
@@ -93,34 +93,35 @@ class DashboardService:
         await db.commit()
         await db.refresh(lead)
 
-        # Se o lead foi devolvido para PILOTO_IA e segue em andamento, reativa follow-up
         if lead.desfecho == models.DesfechoLead.EM_ANDAMENTO:
             await FollowupService.agendar_proximo_followup(db, lead)
 
         logger.info(f"[TRANSBORDO DEVOLVER] 🤖 Lead ID {lead_id} ({lead.telefone}) devolvido para PILOTO_IA com cadência reativada.")
         return lead
 
-    @staticmethod
+    @classmethod
     async def enviar_mensagem_humana_painel(
+        cls,
         db: AsyncSession,
         lead_id: int,
         texto: str,
         atendente: str = "Atendente"
     ) -> models.Interacao:
-        """Envia uma mensagem manual do atendente pelo Dashboard e registra na conversa."""
+        """Envia uma mensagem manual do atendente pelo Dashboard e registra na conversa via protocolos injetáveis."""
         lead = await LeadRepository.get_by_id(db, lead_id)
         if not lead:
             raise HTTPException(status_code=404, detail="Lead não encontrado para envio de mensagem.")
 
-        resposta = await uazapi_service.enviar_mensagem(lead.telefone, texto, delay_ms=1000)
+        resposta = await cls.whatsapp_gateway.enviar_mensagem(lead.telefone, texto, delay_ms=1000)
         dados = resposta.get("dados") if isinstance(resposta, dict) else None
-        msg_id = dados.get("id") or dados.get("messageid") or dados.get("key", {}).get("id") if isinstance(dados, dict) else None
+        msg_id = (
+            dados.get("id") or dados.get("messageid") or dados.get("key", {}).get("id")
+            if isinstance(dados, dict)
+            else None
+        )
 
         if msg_id:
-            try:
-                await redis_client.setex(f"bot_outbound:{msg_id}", 120, "1")
-            except Exception:
-                pass
+            await cls.buffer_gateway.registrar_marcador_bot(str(msg_id), ttl_segundos=120)
 
         interacao = await LeadRepository.add_interaction(
             db=db,
@@ -146,20 +147,5 @@ class DashboardService:
         limit: Optional[int] = None,
         offset: int = 0
     ) -> List[models.Lead]:
-        """Lista leads aguardando atenção ou em atendimento humano com suporte opcional a paginação."""
-        query = (
-            select(models.Lead)
-            .where(
-                cast(models.Lead.controle, String).in_([
-                    models.ControleAtendimento.TRANSBORDO_SOLICITADO.value,
-                    models.ControleAtendimento.HUMANO_ASSUMIU.value,
-                    "TRANSBORDO_SOLICITADO",
-                    "HUMANO_ASSUMIU"
-                ])
-            )
-            .order_by(models.Lead.criado_em.desc())
-        )
-        if limit is not None:
-            query = query.limit(limit).offset(offset)
-        resultado = await db.execute(query)
-        return list(resultado.scalars().all())
+        """Lista leads aguardando atenção ou em atendimento humano delegando SQL ao LeadRepository."""
+        return await LeadRepository.list_pending_handover(db, limit=limit, offset=offset)

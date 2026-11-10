@@ -39,6 +39,7 @@ def main():
         "core.logger",
         "core.exceptions",
         "core.protocols",
+        "core.background",
         "core.openai_client",
         "core.temporal.business_hours",
         "core.utils.formatting",
@@ -56,6 +57,7 @@ def main():
         "models.lead",
         "models.interaction",
         "models.followup",
+        "models.settings",
     ]
     for mod_name in model_modules:
         mod = importlib.import_module(mod_name)
@@ -81,6 +83,7 @@ def main():
         "schemas.transbordo",
         "schemas.analytics",
         "schemas.uazapi",
+        "schemas.settings",
     ]
     for mod_name in schema_modules:
         mod = importlib.import_module(mod_name)
@@ -100,6 +103,7 @@ def main():
         "repositories.lead_repository",
         "repositories.followup_repository",
         "repositories.analytics_repository",
+        "repositories.settings_repository",
     ]
     for mod_name in repo_modules:
         mod = importlib.import_module(mod_name)
@@ -138,6 +142,7 @@ def main():
         "integrations.redis.gateway",
         "integrations.uazapi.client",
         "integrations.uazapi.gateway",
+        "integrations.send_inteligentte.client",
         "integrations.transbordo_notifier",
         "integrations.media.vision_client",
         "integrations.media.handlers.text",
@@ -157,6 +162,8 @@ def main():
     audit_log("7. CAMADA DE SERVIÇOS (BOUNDED CONTEXTS)")
     service_modules = [
         "services.inbound.orchestrator",
+        "services.inbound.webhook_service",
+        "services.inbound.send_event_service",
         "services.inbound.consolidation",
         "services.inbound.optout",
         "services.inbound.failover",
@@ -166,6 +173,7 @@ def main():
         "services.lead.analytics_service",
         "services.handover.transbordo_service",
         "services.handover.dashboard_service",
+        "services.settings.settings_service",
     ]
     for mod_name in service_modules:
         mod = importlib.import_module(mod_name)

@@ -233,7 +233,34 @@ class AnalyticsRepository:
 
         total_agendados = sum(fu_map.values())
         total_disparados = fu_map.get(models.StatusFollowup.DISPARADO, 0)
-        total_resgatados = fu_map.get(models.StatusFollowup.CANCELADO_POR_RESPOSTA, 0)
+
+        # Resgates reais: apenas cancelamentos de tentativa >= 2 (significando que o toque N-1 foi efetivamente
+        # disparado e trouxe o cliente de volta) + respostas de clientes após o disparo do último toque.
+        query_resgates_pos_toque = select(func.count(models.FollowupAgendado.id)).where(
+            models.FollowupAgendado.status == models.StatusFollowup.CANCELADO_POR_RESPOSTA,
+            models.FollowupAgendado.tentativa >= 2,
+        )
+        resgates_intermediarios = int((await db.execute(query_resgates_pos_toque)).scalar() or 0)
+
+        # Clientes que responderam após o último toque disparado (onde não há tentativa N+1 pendente para cancelar)
+        subq_resposta_posterior = (
+            select(models.Interacao.id)
+            .where(
+                models.Interacao.lead_id == models.FollowupAgendado.lead_id,
+                models.Interacao.origem == models.InteracaoOrigem.CLIENTE,
+                models.Interacao.criado_em > models.FollowupAgendado.atualizado_em,
+            )
+            .correlate(models.FollowupAgendado)
+            .exists()
+        )
+        query_resgates_finais = select(func.count(models.FollowupAgendado.id)).where(
+            models.FollowupAgendado.status == models.StatusFollowup.DISPARADO,
+            models.FollowupAgendado.tentativa >= 3,
+            subq_resposta_posterior,
+        )
+        resgates_finais = int((await db.execute(query_resgates_finais)).scalar() or 0)
+
+        total_resgatados = min(total_disparados, resgates_intermediarios + resgates_finais)
 
         # Leads congelados por cadência esgotada (3 toques)
         query_congelados = select(func.count(models.Lead.id)).where(

@@ -1,14 +1,18 @@
-version: '3.8'
-
 services:
+  frontend:
+    build: ./frontend
+    container_name: core-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
   backend:
     build: ./backend
     container_name: core-backend
     ports:
-      - "8000:8000"
-    volumes:
-      - ./backend:/app
-      - /app/.venv
+      - "127.0.0.1:8000:8000"
     env_file:
       - .env
     environment:
@@ -16,23 +20,27 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - UAZAPI_URL=${UAZAPI_URL}
       - UAZAPI_TOKEN=${UAZAPI_TOKEN}
+      - SEND_API_URL=${SEND_API_URL}
+      - SEND_API_KEY=${SEND_API_KEY}
+      - SUPERVISOR_PHONE=${SUPERVISOR_PHONE}
+      - SANDBOX_MODE=${SANDBOX_MODE:-False}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
     depends_on:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
-    restart: always
+        condition: service_healthy
+    restart: unless-stopped
 
   db:
     image: postgres:15-alpine
     container_name: postgres-db
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ecossistema_vendas
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -40,15 +48,21 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    restart: always
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     container_name: redis-cache
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
 
 volumes:
   pgdata:

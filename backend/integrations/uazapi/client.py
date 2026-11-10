@@ -4,6 +4,12 @@ from core.logger import logger
 from core.config import settings
 from core.utils import dividir_mensagens_whatsapp
 from integrations.redis.buffer import redis_client
+from integrations.send_inteligentte.client import (
+    enviar_mensagem_send,
+    baixar_midia_send,
+    close_send_client,
+    limpar_telefone_send,
+)
 
 _shared_client: httpx.AsyncClient | None = None
 
@@ -26,12 +32,17 @@ async def close_uazapi_client():
     if _shared_client and not _shared_client.is_closed:
         await _shared_client.aclose()
         _shared_client = None
+    await close_send_client()
 
 async def enviar_presenca(telefone: str, presenca: str = "composing", delay_ms: int = 15000) -> dict:
     """
     Atualiza o status de presença da conversa no WhatsApp (ex: 'composing' para 'digitando...'
     ou 'recording' para 'gravando áudio...').
+    Na API Oficial Meta (Send Inteligentte), opera como no-op instantâneo para evitar latência desnecessária.
     """
+    if settings.SEND_API_KEY:
+        return {"status": "sucesso", "gateway": "send_inteligentte"}
+
     if not settings.UAZAPI_TOKEN:
         logger.warning("[UAZAPI PRESENÇA] UAZAPI_TOKEN não está configurado.")
         return {"status": "erro", "detalhe": "Token não configurado"}
@@ -59,11 +70,21 @@ async def enviar_presenca(telefone: str, presenca: str = "composing", delay_ms: 
 
 async def enviar_mensagem(telefone: str, texto: str, delay_ms: int = 2000, max_retries: int = 2) -> dict:
     """
-    Envia uma mensagem de texto para o número fornecido via Uazapi.
-    Ativa automaticamente readchat=True para marcar a mensagem do lead como lida.
-    Possui política de retries automáticos com backoff para resiliência de rede.
+    Envia uma mensagem de texto para o número fornecido.
+    - Para leads: utiliza exclusivamente o Send Inteligentte (API Oficial Meta) quando SEND_API_KEY está ativa.
+    - Para o SUPERVISOR_PHONE (Eduardo): prioriza a Uazapi dedicada (livre da trava de 24h da Meta),
+      com fallback automático para o Send Inteligentte caso a Uazapi esteja desconectada.
     """
+    sup_limpo = limpar_telefone_send(settings.SUPERVISOR_PHONE) if settings.SUPERVISOR_PHONE else ""
+    dest_limpo = limpar_telefone_send(telefone)
+    eh_supervisor = bool(sup_limpo and dest_limpo == sup_limpo)
+
+    if settings.SEND_API_KEY and not (eh_supervisor and settings.UAZAPI_TOKEN):
+        return await enviar_mensagem_send(telefone=telefone, texto=texto, max_retries=max_retries)
+
     if not settings.UAZAPI_TOKEN:
+        if settings.SEND_API_KEY:
+            return await enviar_mensagem_send(telefone=telefone, texto=texto, max_retries=max_retries)
         logger.error("[UAZAPI SEND] UAZAPI_TOKEN não está configurado no arquivo .env!")
         return {"status": "erro", "detalhe": "Token não configurado"}
         
@@ -74,12 +95,13 @@ async def enviar_mensagem(telefone: str, texto: str, delay_ms: int = 2000, max_r
     }
     
     body = {
-        "number": telefone,
+        "number": dest_limpo or telefone,
         "text": texto,
-        "delay": str(delay_ms),
-        "readchat": True,
-        "readmessages": True
     }
+    if not eh_supervisor:
+        body["delay"] = str(delay_ms)
+        body["readchat"] = True
+        body["readmessages"] = True
     
     tentativa = 0
     client = get_uazapi_client()
@@ -115,13 +137,21 @@ async def enviar_mensagem(telefone: str, texto: str, delay_ms: int = 2000, max_r
                 await asyncio.sleep(espera)
             else:
                 logger.error(f"[UAZAPI SEND] ❌ Falha definitiva após {max_retries} tentativas: {e}")
+                if eh_supervisor and settings.SEND_API_KEY:
+                    logger.info("[GATEWAY FALLBACK] 🔄 Timeout na Uazapi; enviando alerta ao Supervisor via Send Inteligentte...")
+                    return await enviar_mensagem_send(telefone=telefone, texto=texto, max_retries=1)
                 return {"status": "erro", "detalhe": str(e)}
         except httpx.HTTPStatusError as e:
             erro = e.response.text
             logger.error(f"[UAZAPI SEND] ❌ Erro da API Uazapi ({e.response.status_code}): {erro}")
+            if eh_supervisor and settings.SEND_API_KEY:
+                logger.info("[GATEWAY FALLBACK] 🔄 Uazapi indisponível; tentando enviar alerta ao Supervisor via Send Inteligentte...")
+                return await enviar_mensagem_send(telefone=telefone, texto=texto, max_retries=1)
             return {"status": "erro", "detalhe": erro}
         except Exception as e:
             logger.error(f"[UAZAPI SEND] ❌ Falha na comunicação: {str(e)}")
+            if eh_supervisor and settings.SEND_API_KEY:
+                return await enviar_mensagem_send(telefone=telefone, texto=texto, max_retries=1)
             return {"status": "erro", "detalhe": str(e)}
             
     return {"status": "erro", "detalhe": "Max retries excedido"}
@@ -183,9 +213,15 @@ async def enviar_mensagem_humanizada(
 
 async def baixar_arquivo(message_id: str, generate_mp3: bool = False) -> dict:
     """
-    Solicita o download do arquivo de uma mensagem diretamente via API da Uazapi.
+    Solicita o download do arquivo de uma mensagem via Send Inteligentte (/media/:mediaId)
+    ou via API da Uazapi (/message/download).
     Retorna dicionário com base64Data, fileURL, mimetype, etc.
     """
+    if settings.SEND_API_KEY and message_id:
+        dados_send = await baixar_midia_send(message_id)
+        if dados_send and dados_send.get("base64Data"):
+            return dados_send
+
     if not settings.UAZAPI_TOKEN:
         logger.warning("[UAZAPI DOWNLOAD] UAZAPI_TOKEN não configurado para download de mídia.")
         return {}

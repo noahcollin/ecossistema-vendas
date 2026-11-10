@@ -61,8 +61,12 @@ from .settings import (
     ProdutoItem,
     CadenciaConfig,
     HorarioComercialConfig,
+    PacingConfig,
     OperacaoSettingsResponse,
     OperacaoSettingsUpdate,
+    KillSwitchRequest,
+    KillSwitchResponse,
+    RedisPurgeResponse,
 )
 
 __all__ = [
@@ -115,7 +119,11 @@ __all__ = [
     "ProdutoItem",
     "CadenciaConfig",
     "HorarioComercialConfig",
+    "PacingConfig",
     "OperacaoSettingsResponse",
     "OperacaoSettingsUpdate",
+    "KillSwitchRequest",
+    "KillSwitchResponse",
+    "RedisPurgeResponse",
 ]
 

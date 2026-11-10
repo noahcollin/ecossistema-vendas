@@ -1,9 +1,10 @@
 import asyncio
 import random
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.background import spawn_background_task
 from core.logger import logger
 from core.config import settings
 from core.database import AsyncSessionLocal
@@ -14,21 +15,29 @@ from repositories.lead_repository import LeadRepository
 from repositories.followup_repository import FollowupRepository
 from integrations.uazapi.gateway import default_uazapi_gateway
 from integrations.redis.buffer import redis_client
-from agents import gerar_mensagem_followup, auditar_jornada_lead
+import agents
 
 
 class FollowupService:
     """
     Motor de Cadência Temporal e Follow-Up Ativo (Fase 2 do PRD - RF11 e RF12).
-    Orquestra o agendamento proativo, cancelamento reativo e disparo inteligente
-    com blindagem anti-ban e adequação comercial.
+    Orquestra o agendamento proativo, cancelamento reativo, disparo inteligente
+    com blindagem anti-ban e congelamento pós-janela de graça do último toque.
     """
 
     whatsapp_gateway: WhatsAppGatewayProtocol = default_uazapi_gateway
 
-    # Delegação para a política isolada de horários comerciais e anti-ban jitter
     ajustar_para_horario_comercial = BusinessHoursPolicy.ajustar_para_horario_comercial
     calcular_data_agendamento = BusinessHoursPolicy.calcular_momento_disparo
+
+    @staticmethod
+    def _obter_max_tentativas() -> int:
+        """Retorna o teto dinâmico de toques configurado na Sala de Máquinas (default: 3)."""
+        try:
+            from services.settings import SettingsService
+            return int(SettingsService.obter_cache_memoria().cadencia.max_tentativas or 3)
+        except Exception:
+            return 3
 
     @classmethod
     async def agendar_proximo_followup(
@@ -36,11 +45,10 @@ class FollowupService:
         db: AsyncSession,
         lead: models.Lead
     ) -> Optional[models.FollowupAgendado]:
-        """Programa o próximo toque da cadência temporal (RF11)."""
+        """Programa o próximo toque da cadência temporal (RF11) ou congela caso o teto tenha sido esgotado."""
         if not settings.FOLLOWUP_ENABLED:
             return None
 
-        # Checagem de elegibilidade
         if (
             lead.opt_out
             or lead.desfecho != models.DesfechoLead.EM_ANDAMENTO
@@ -50,28 +58,30 @@ class FollowupService:
             await FollowupRepository.cancelar_pendentes_por_lead(db, lead.id, models.StatusFollowup.ABORTADO)
             return None
 
-        # Se já existe follow-up pendente, preserva
         pendente = await FollowupRepository.obter_pendente_por_lead(db, lead.id)
         if pendente:
             return pendente
 
-        # Avalia a próxima tentativa baseada no histórico
+        max_tentativas = cls._obter_max_tentativas()
         ultima_tentativa = await FollowupRepository.obter_ultima_tentativa(db, lead.id)
         proxima_tentativa = 1
 
         if ultima_tentativa and ultima_tentativa.status == models.StatusFollowup.DISPARADO:
-            if ultima_tentativa.tentativa >= 3:
-                # Esgotamento de 3 toques -> Congela cadência (FSM Seção 5.1)
+            if ultima_tentativa.tentativa >= max_tentativas:
                 lead.desfecho = models.DesfechoLead.CONGELADO_CADENCIA
                 lead.temperatura = models.TemperaturaLead.FRIO
-                lead.motivo_perda = "Cadência Esgotada (Sem Resposta após 3 Toques)"
+                lead.motivo_perda = f"Cadência Esgotada (Sem Resposta após {max_tentativas} Toques)"
                 await db.commit()
 
-                logger.warning(f"[CADENCIA] ❄️ Lead {lead.telefone} esgotou 3 toques. FSM: CONGELADO_CADENCIA.")
-                asyncio.create_task(cls.disparar_auditoria_em_segundo_plano(lead.id))
+                logger.warning(
+                    f"[CADENCIA] ❄️ Lead {lead.telefone} esgotou {max_tentativas} toques sem resposta. FSM: CONGELADO_CADENCIA."
+                )
+                spawn_background_task(
+                    cls.disparar_auditoria_em_segundo_plano(lead.id),
+                    name=f"auditoria_congelamento_{lead.id}",
+                )
                 return None
-            else:
-                proxima_tentativa = ultima_tentativa.tentativa + 1
+            proxima_tentativa = ultima_tentativa.tentativa + 1
 
         agendado_para = cls.calcular_data_agendamento(proxima_tentativa)
         novo_followup = await FollowupRepository.criar(
@@ -83,7 +93,7 @@ class FollowupService:
         )
 
         logger.info(
-            f"[CADENCIA] 📅 Toque {proxima_tentativa}/3 agendado para {lead.telefone} "
+            f"[CADENCIA] 📅 Toque {proxima_tentativa}/{max_tentativas} agendado para {lead.telefone} "
             f"em {agendado_para.strftime('%d/%m/%Y %H:%M:%S UTC')}."
         )
         return novo_followup
@@ -115,7 +125,6 @@ class FollowupService:
         f_item: models.FollowupAgendado
     ) -> bool:
         """Executa a formulação da mensagem contextual e o envio para um lead específico."""
-        # 🔒 Trava atômica distribuída no Redis (Anti-Duplo Disparo / Concorrência de Workers)
         chave_lock = f"lock:followup:{f_item.id}"
         adquiriu_lock = await redis_client.set(chave_lock, "1", nx=True, ex=180)
         if not adquiriu_lock:
@@ -130,9 +139,6 @@ class FollowupService:
                 await FollowupRepository.atualizar_status(db, f_item, models.StatusFollowup.ABORTADO)
                 return False
 
-            # 🛡️ GUARDA DE MENSAGENS ATIVAS NO BUFFER DO REDIS:
-            # Se o cliente acabou de enviar mensagens que ainda estão no buffer de debounce,
-            # aborta o follow-up imediatamente para não parecer incoerente ("Oi, sumiu?").
             qtd_buffer = await redis_client.llen(f"buffer:{lead.telefone}")
             if qtd_buffer > 0:
                 logger.info(
@@ -148,7 +154,7 @@ class FollowupService:
                 limit=settings.JANELA_HISTORICO_RECENTE
             )
 
-            texto_msg = await gerar_mensagem_followup(
+            texto_msg = await agents.gerar_mensagem_followup(
                 nome_cliente_bruto=lead.nome or "Cliente",
                 ficha_resumo=lead.resumo_perfil,
                 etapa_funil=f_item.etapa_funil,
@@ -168,7 +174,6 @@ class FollowupService:
                     logger.warning(f"[CADENCIA REDIS] Falha ao registrar alerta no Redis: {r_err}")
                 return False
 
-            # Disparo humanizado em múltiplos balões com digitação (SRP / DRY)
             baloes_enviados, sucesso = await cls.whatsapp_gateway.enviar_mensagem_humanizada(
                 telefone=lead.telefone,
                 texto_bruto=texto_msg,
@@ -183,25 +188,82 @@ class FollowupService:
                 await FollowupRepository.atualizar_status(db, f_item, models.StatusFollowup.ABORTADO)
                 return False
 
-            # Registra interação de IA no histórico de forma limpa (sem |||)
             texto_historico = "\n\n".join(baloes_enviados) if baloes_enviados else texto_msg
             await LeadRepository.add_interaction(db=db, lead_id=lead.id, origem=models.InteracaoOrigem.IA, texto=texto_historico)
             await FollowupRepository.marcar_como_disparado(db, f_item, texto_historico)
 
+            max_tentativas = cls._obter_max_tentativas()
             logger.info(
-                f"[CADENCIA] 🚀 Toque {f_item.tentativa}/3 disparado com sucesso para {lead.telefone} "
+                f"[CADENCIA] 🚀 Toque {f_item.tentativa}/{max_tentativas} disparado com sucesso para {lead.telefone} "
                 f"({len(baloes_enviados)} balão(ões))!"
             )
-            await cls.agendar_proximo_followup(db, lead)
+
+            # Agenda imediatamente apenas se houver próximo toque (< max_tentativas).
+            # Se for o último toque, aguarda a janela de graça antes de congelar o lead!
+            if f_item.tentativa < max_tentativas:
+                await cls.agendar_proximo_followup(db, lead)
+            else:
+                logger.info(
+                    f"[CADENCIA] ⏳ Último toque ({f_item.tentativa}/{max_tentativas}) entregue para {lead.telefone}. "
+                    f"Aguardando janela de resposta antes do congelamento automático."
+                )
             return True
         finally:
             await redis_client.delete(chave_lock)
 
     @classmethod
+    async def verificar_congelamento_pos_ultimo_toque(cls, db: AsyncSession) -> int:
+        """
+        Congela leads (CONGELADO_CADENCIA) cujo último toque já cumpriu a janela de espera
+        (`FOLLOWUP_INTERVAL_1_HOURS`) sem nova interação do cliente.
+        """
+        max_tentativas = cls._obter_max_tentativas()
+        horas_graca = max(1.0, float(settings.FOLLOWUP_INTERVAL_1_HOURS or 2.0))
+        data_corte = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=horas_graca)
+
+        leads_maduros = await FollowupRepository.obter_leads_maduros_para_congelamento(
+            db=db,
+            max_tentativas=max_tentativas,
+            data_corte_utc=data_corte,
+        )
+        congelados = 0
+        for lead in leads_maduros:
+            ultima_msg_cliente = await LeadRepository.get_latest_interaction_by_origins(
+                db=db,
+                lead_id=lead.id,
+                origens=[models.InteracaoOrigem.CLIENTE],
+            )
+            ultima_tentativa = await FollowupRepository.obter_ultima_tentativa(db, lead.id)
+            if (
+                ultima_tentativa
+                and ultima_msg_cliente
+                and ultima_msg_cliente.criado_em
+                and ultima_tentativa.atualizado_em
+                and ultima_msg_cliente.criado_em > ultima_tentativa.atualizado_em
+            ):
+                # Cliente já respondeu após o último toque; não congela.
+                continue
+
+            await cls.agendar_proximo_followup(db, lead)
+            if lead.desfecho == models.DesfechoLead.CONGELADO_CADENCIA:
+                congelados += 1
+        return congelados
+
+    @classmethod
     async def processar_lote_followups(cls, db: AsyncSession) -> int:
-        """Processa a fila de follow-ups vencidos com guardrails de horário e anti-ban pacing."""
+        """Processa a fila de follow-ups vencidos com guardrails de Kill-Switch, horário e anti-ban pacing."""
         if not settings.FOLLOWUP_ENABLED:
             return 0
+
+        try:
+            from services.settings import SettingsService
+            if SettingsService.esta_ia_silenciada():
+                logger.debug("[CADENCIA] 🛡️ Kill-Switch global ativo; lote de follow-up adiado.")
+                return 0
+        except Exception:
+            pass
+
+        await cls.verificar_congelamento_pos_ultimo_toque(db)
 
         vencidos = await FollowupRepository.obter_vencidos_pendentes(db, limite=20, carregar_lead=True)
         if not vencidos:
@@ -210,7 +272,6 @@ class FollowupService:
         agora_utc = datetime.now(timezone.utc).replace(tzinfo=None)
         ajustado = cls.ajustar_para_horario_comercial(agora_utc)
 
-        # Se estamos fora da janela comercial, reprograma o lote com jitter
         if (ajustado - agora_utc).total_seconds() > 60:
             logger.info(f"[CADENCIA] 🌙 Fora do expediente. Reprogramando {len(vencidos)} follow-ups para {ajustado.strftime('%d/%m %H:%M')}.")
             for i, item in enumerate(vencidos):
@@ -234,16 +295,12 @@ class FollowupService:
 
     @staticmethod
     async def disparar_auditoria_em_segundo_plano(lead_id: int) -> None:
-        """Dispara a auditoria do DealAuditorAgent quando a cadência congela."""
+        """Dispara a auditoria comercial reutilizando LeadService.gerar_dossie_lead (DRY)."""
         try:
+            from services.lead import LeadService
             async with AsyncSessionLocal() as bg_db:
-                lead = await LeadRepository.get_by_id(bg_db, lead_id)
-                if lead:
-                    interacoes = await LeadRepository.get_interactions(bg_db, lead_id)
-                    dossie = await auditar_jornada_lead(lead, interacoes)
-                    dossie_dict = dossie.model_dump() if hasattr(dossie, "model_dump") else dict(dossie)
-                    await LeadRepository.salvar_dossie(bg_db, lead, dossie_dict)
-                    logger.info(f"[CADENCIA AUDITORIA] 📋 Dossiê gerado para Lead ID {lead_id} congelado.")
+                await LeadService.gerar_dossie_lead(bg_db, lead_id)
+                logger.info(f"[CADENCIA AUDITORIA] 📋 Dossiê gerado para Lead ID {lead_id} congelado.")
         except Exception as e:
             logger.error(f"[CADENCIA AUDITORIA ERRO] ❌ Falha na auditoria: {e}")
 

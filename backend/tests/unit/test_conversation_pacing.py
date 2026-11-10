@@ -66,7 +66,7 @@ async def test_pacing_zona_vermelha_estagnacao_finops():
     # Garante ausência total de jargões robóticos de SAC/chatbot
     assert "atendente humano" not in eval_30.mensagem_despedida_humana
     assert "transferir" not in eval_30.mensagem_despedida_humana
-    assert "portas" in eval_30.mensagem_despedida_humana.lower()
+    assert "encerrar por aqui" in eval_30.mensagem_despedida_humana.lower()
 
 
 @pytest.mark.asyncio

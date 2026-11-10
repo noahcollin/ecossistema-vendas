@@ -38,9 +38,19 @@ class TransbordoNotifier:
         temp_str = getattr(lead.temperatura, "value", str(lead.temperatura or "N/A")) if hasattr(lead, "temperatura") else "N/A"
 
         motivo_lower = (motivo or "").lower()
-        is_fechamento = "fechamento" in motivo_lower or "contrato" in motivo_lower
+        is_diagnostico = any(
+            termo in motivo_lower
+            for termo in ("diagnóstico", "diagnostico", "reunião", "reuniao", "agendad", "eduardo")
+        )
+        is_fechamento = is_diagnostico or "fechamento" in motivo_lower or "contrato" in motivo_lower
 
-        if is_fechamento:
+        if is_diagnostico and "assinatura de contrato" not in motivo_lower:
+            cabecalho = "📅 *CONVERSA DE 20 MIN AGENDADA PELO ELI GENTIL* 📅"
+            acao_necessaria = (
+                "O lead confirmou o dia e horário da conversa de 20 min com o time! "
+                "Confira o mapeamento abaixo (ramo, rede social, dor, solução e horário agendado) e envie o link da reunião."
+            )
+        elif is_fechamento:
             cabecalho = "🔥 *OPORTUNIDADE QUENTE: LEAD PRONTO PARA ASSINATURA DE CONTRATO* 🔥"
             acao_necessaria = "O lead forneceu os dados para formalização. Prepare a minuta e entre em contato imediatamente para colher a assinatura e fechar a venda!"
         else:

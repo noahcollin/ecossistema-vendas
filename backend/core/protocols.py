@@ -48,7 +48,7 @@ class WhatsAppGatewayProtocol(Protocol):
 
 @runtime_checkable
 class CacheBufferProtocol(Protocol):
-    """Contrato abstrato para operações de buffer e debounce em memória volátil/cache."""
+    """Contrato abstrato para operações de buffer, locks distribuídos e marcadores em memória volátil/cache."""
 
     async def adicionar_mensagem(
         self,
@@ -68,4 +68,37 @@ class CacheBufferProtocol(Protocol):
         telefone: str,
         token_disparado: str | float
     ) -> bool:
+        ...
+
+    async def listar_telefones_com_buffer(self) -> list[str]:
+        ...
+
+    async def contar_buffers_pendentes(self) -> int:
+        ...
+
+    async def registrar_marcador_bot(
+        self,
+        msg_id: str,
+        ttl_segundos: int = 120
+    ) -> None:
+        ...
+
+    async def verificar_marcador_bot(self, msg_id: str) -> bool:
+        ...
+
+    async def adquirir_lock(
+        self,
+        chave: str,
+        ttl_segundos: int = 45
+    ) -> str | None:
+        ...
+
+    async def liberar_lock(
+        self,
+        chave: str,
+        token: str
+    ) -> bool:
+        ...
+
+    async def expurgar_filas_volateis(self) -> int:
         ...

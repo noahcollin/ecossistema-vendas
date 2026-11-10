@@ -1,20 +1,26 @@
-# Use a imagem oficial do Python como base
 FROM python:3.12-slim
 
-# Define o diretório de trabalho no container
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    HOME=/tmp \
+    UV_CACHE_DIR=/tmp/.uv-cache \
+    PATH="/app/.venv/bin:$PATH"
+
 WORKDIR /app
 
-# Instala o uv (gerenciador de dependências hiper rápido)
-RUN pip install uv
+RUN pip install --no-cache-dir uv && \
+    addgroup --system appgroup && \
+    adduser --system --ingroup appgroup appuser
 
-# Copia todos os arquivos do projeto para o container
+COPY pyproject.toml uv.lock* ./
+RUN uv sync --no-dev || uv sync
+
 COPY . .
+RUN chown -R appuser:appgroup /app
 
-# Cria o ambiente e instala as dependências
-RUN uv sync
+USER appuser
 
-# Expõe a porta que o FastAPI vai usar
 EXPOSE 8000
 
-# Comando para rodar a aplicação
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/app/.venv/bin/uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

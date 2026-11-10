@@ -21,6 +21,8 @@ from . import settings
 # Classes e instâncias exportadas na fachada
 from .inbound import (
     InboundService,
+    WebhookApplicationService,
+    SendEventService,
     MessageConsolidator,
     default_message_consolidator,
     OptOutGuard,
@@ -81,6 +83,8 @@ __all__ = [
     "settings",
     # Serviços Inbound
     "InboundService",
+    "WebhookApplicationService",
+    "SendEventService",
     "MessageConsolidator",
     "default_message_consolidator",
     "OptOutGuard",

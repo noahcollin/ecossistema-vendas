@@ -1,11 +1,12 @@
 import json
 from typing import List, Optional
-from core.openai_client import openai_client
+from core.openai_client import openai_client, is_openai_quota_error
 from core.logger import logger
 from core.config import settings
 import models
 import schemas
 from .prompts import PROMPT_SISTEMA_ANALISTA
+
 
 async def analisar_lead_e_fsm(
     lead: models.Lead,
@@ -19,7 +20,7 @@ async def analisar_lead_e_fsm(
     try:
         ficha_anterior = lead.resumo_perfil or "Primeiro contato. Nenhum dado prévio registrado."
         dados_anteriores = lead.dados_qualificacao or {}
-        
+
         etapa_atual = lead.etapa_funil.value if (hasattr(lead, "etapa_funil") and lead.etapa_funil) else models.EtapaFunil.NOVO_CONTATO.value
         desfecho_atual = lead.desfecho.value if (hasattr(lead, "desfecho") and lead.desfecho) else models.DesfechoLead.EM_ANDAMENTO.value
         temp_atual = lead.temperatura.value if (hasattr(lead, "temperatura") and lead.temperatura) else models.TemperaturaLead.FRIO.value
@@ -38,7 +39,7 @@ async def analisar_lead_e_fsm(
             else:
                 remetente = "Vendedor (IA)"
             mensagens_formatadas.append(f"{remetente}: {interacao.texto}")
-        
+
         # Se nova_mensagem foi informada e ainda não está no histórico salvo
         if nova_mensagem and nova_mensagem.strip():
             msg_limpa = nova_mensagem.strip()
@@ -66,7 +67,7 @@ Tags Atuais: {tags_atuais}
 [CONTEXTO RECENTE DO DIÁLOGO]
 {contexto_dialogo}
 
-Com base nas informações acima e na nova interação do cliente, atualize a Ficha do Lead, os dados estruturados e classifique com precisão as 4 dimensões de vendas (etapa_sugerida, desfecho_sugerido, transbordo_sugerido, temperatura_sugerida, motivo_perda, valor_estimado, tags_sugeridas, opt_out_detectado) com sua justificativa analítica.
+Com base nas informações acima e na nova interação do cliente, atualize a Ficha do Lead (incluindo ramo, rede social principal, necessidade mapeada, solução nomeada e, se houver, o dia e horário agendados), os dados estruturados e classifique com precisão as dimensões de vendas (etapa_sugerida, desfecho_sugerido, transbordo_sugerido, pronto_fechamento, temperatura_sugerida, motivo_perda, valor_estimado, tags_sugeridas, opt_out_detectado) com sua justificativa analítica. Regra crítica: mantenha transbordo_sugerido=False e pronto_fechamento=False durante a abertura (NOVO_CONTATO), mapeamento de ramo/rede/necessidade (QUALIFICACAO), apresentação da solução e proposta inicial de turno ('Hoje à tarde ou amanhã de manhã?' em NEGOCIACAO). Defina etapa_sugerida=FECHAMENTO, pronto_fechamento=True e transbordo_sugerido=True SOMENTE quando o dia e horário da conversa de 20 min já estiverem confirmados com número pelo cliente (ou se o cliente pedir expressamente um atendente humano imediato).
 """
 
         resposta = await openai_client.beta.chat.completions.parse(
@@ -100,22 +101,14 @@ Com base nas informações acima e na nova interação do cliente, atualize a Fi
             f"Desfecho: {resultado.desfecho_sugerido.value} | "
             f"Temp: {resultado.temperatura_sugerida.value} | "
             f"Transbordo: {resultado.transbordo_sugerido} | "
+            f"ProntoFechamento: {resultado.pronto_fechamento} | "
             f"Tags: {resultado.tags_sugeridas} | "
             f"Justificativa: {resultado.justificativa}"
         )
         return resultado
 
     except Exception as e:
-        err_str = str(e).lower()
-        termos_cota = [
-            "insufficient_quota",
-            "quota_exceeded",
-            "exceeded your current quota",
-            "credit_balance_exhausted",
-            "no credits remaining",
-            "billing_hard_limit_reached"
-        ]
-        cota_esgotada = any(termo in err_str for termo in termos_cota)
+        cota_esgotada = is_openai_quota_error(e)
         tags_fallback = list(getattr(lead, "tags", []) or [])
         if cota_esgotada:
             logger.critical(f"[ANALISTA LEAD - COTA ESGOTADA] 🚨 Falha por esgotamento de créditos da OpenAI para {lead.telefone}: {e}")
@@ -126,7 +119,6 @@ Com base nas informações acima e na nova interação do cliente, atualize a Fi
         else:
             logger.error(f"[ANALISTA LEAD ERRO] Falha ao analisar lead {lead.telefone}: {e}", exc_info=True)
 
-        # Fallback resiliente: mantém os estados atuais e adiciona nota ao perfil
         dados_fallback = schemas.DadosQualificacao(**(lead.dados_qualificacao or {})) if isinstance(lead.dados_qualificacao, dict) else schemas.DadosQualificacao()
         return schemas.LeadAnalysisOutput(
             resumo_perfil=lead.resumo_perfil or f"Lead em atendimento ({lead.nome or 'Contato'}).",
@@ -138,7 +130,7 @@ Com base nas informações acima e na nova interação do cliente, atualize a Fi
             valor_estimado=getattr(lead, "valor_estimado", None),
             tags_sugeridas=tags_fallback,
             opt_out_detectado=getattr(lead, "opt_out", False) or False,
+            pronto_fechamento=False,
             justificativa="Créditos da OpenAI esgotados. Transbordo acionado." if cota_esgotada else f"Fallback automático por falha técnica na análise: {str(e)}",
             dados_qualificacao=dados_fallback
         )
-

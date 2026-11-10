@@ -1,58 +1,81 @@
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from fastapi import FastAPI, Response, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-import time
-from core.logger import logger
-from core.database import engine, Base, AsyncSessionLocal
+from core.background import spawn_background_task, drain_background_tasks, get_active_background_tasks_count
 from core.config import settings
+from core.database import engine, Base, AsyncSessionLocal
+from core.exceptions import (
+    AppException,
+    LeadNotFoundError,
+    InvalidPhoneNumberError,
+    LeadOptedOutError,
+    TransbordoStateError,
+    SecurityException,
+)
+from core.logger import logger
 from core.security import SecurityHeadersMiddleware
 from integrations.redis.buffer import redis_client
+from integrations.redis.gateway import default_redis_buffer_gateway
 from integrations.uazapi import close_uazapi_client
 from services.cadence import FollowupService
-from services.inbound import InboundService
+from services.inbound import InboundService, SendEventService
+from services.settings import SettingsService
 
 from api.routers import leads, webhook, analytics, settings as settings_router
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Roda uma única vez ANTES do servidor ligar e aceitar requisições
     async with engine.begin() as conn:
-        # Schema é governado via migrações Alembic (alembic upgrade head)
         await conn.run_sync(Base.metadata.create_all)
 
-    # Inicia o Motor de Cadência Temporal e Follow-Up em Segundo Plano (RF11 & RF12 do PRD)
-    worker_task = asyncio.create_task(FollowupService.worker_loop())
+    # Aquecimento resiliente do cache L1 de configurações operacionais
+    try:
+        async with AsyncSessionLocal() as session:
+            await SettingsService.obter_configuracoes(session)
+    except Exception as cfg_err:
+        logger.warning(f"[STARTUP SETTINGS] ⚠️ Aquecimento inicial com defaults em memória: {cfg_err}")
 
-    # 🔄 Recuperação Resiliente de Buffers Órfãos no Redis (Pós-Crash / Pós-Restart)
-    async def recuperar_buffers_pendentes():
+    worker_task = asyncio.create_task(FollowupService.worker_loop(), name="followup_worker_loop")
+    send_poller_task = asyncio.create_task(SendEventService.worker_loop(), name="send_poller_worker_loop")
+
+    async def recuperar_buffers_pendentes() -> None:
         try:
-            await asyncio.sleep(2.0)  # Aguarda estabilização dos serviços
-            chaves = await redis_client.keys("buffer:*")
-            if chaves:
-                for chave in chaves:
-                    telefone = chave.replace("buffer:", "")
-                    token = await redis_client.get(f"last_msg_time:{telefone}") or str(time.time_ns())
-                    asyncio.create_task(InboundService.processar_debounce(telefone, "Cliente", token))
-                    logger.info(f"[RECOVERY STARTUP] 🔄 Recuperado buffer órfão no Redis para {telefone} e iniciado debounce.")
+            await asyncio.sleep(2.0)
+            telefones = await default_redis_buffer_gateway.listar_telefones_com_buffer()
+            for telefone in telefones:
+                token = await redis_client.get(f"last_msg_time:{telefone}") or str(time.time_ns())
+                spawn_background_task(
+                    InboundService.processar_debounce(telefone, "Cliente", token),
+                    name=f"recovery_debounce_{telefone}",
+                )
+                logger.info(
+                    f"[RECOVERY STARTUP] 🔄 Recuperado buffer órfão via SCAN para {telefone} e iniciado debounce."
+                )
         except Exception as err:
             logger.error(f"[RECOVERY STARTUP ERRO] Falha ao escanear buffers órfãos no Redis: {err}")
 
-    asyncio.create_task(recuperar_buffers_pendentes())
+    spawn_background_task(recuperar_buffers_pendentes(), name="startup_buffer_recovery")
 
     try:
         yield
     finally:
         worker_task.cancel()
-        try:
-            await worker_task
-        except asyncio.CancelledError:
-            pass
+        send_poller_task.cancel()
+        for t in (worker_task, send_poller_task):
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
 
-        # Encerramento gracioso de recursos externos e pools de conexão
+        await drain_background_tasks(timeout=5.0)
+
         try:
             await close_uazapi_client()
         except Exception as err:
@@ -68,14 +91,38 @@ async def lifespan(app: FastAPI):
         except Exception as err:
             logger.warning(f"[SHUTDOWN] Erro ao liberar pool PostgreSQL: {err}")
 
+
+_em_producao = settings.ENVIRONMENT.strip().lower() == "production"
+
 app = FastAPI(
     title="Ecossistema de Vendas Autônomo API",
-    description="Core Backend Refatorado em Clean Architecture",
-    version="1.2.0",
-    lifespan=lifespan
+    description="Core Backend em Clean Architecture — Governança Comercial & Agentes Cognitivos",
+    version="1.3.0",
+    lifespan=lifespan,
+    docs_url=None if _em_producao else "/docs",
+    redoc_url=None if _em_producao else "/redoc",
+    openapi_url=None if _em_producao else "/openapi.json",
 )
 
-# Middleware de CORS configurável e seguro para dashboards e frontends (W3C compliant)
+
+@app.exception_handler(AppException)
+async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
+    """Traduz exceções puras de Domínio/Infraestrutura em respostas HTTP padronizadas na borda Web."""
+    if isinstance(exc, LeadNotFoundError):
+        code = status.HTTP_404_NOT_FOUND
+    elif isinstance(exc, (InvalidPhoneNumberError, LeadOptedOutError, TransbordoStateError)):
+        code = status.HTTP_400_BAD_REQUEST
+    elif isinstance(exc, SecurityException):
+        code = status.HTTP_401_UNAUTHORIZED
+    else:
+        code = status.HTTP_500_INTERNAL_SERVER_ERROR
+
+    return JSONResponse(
+        status_code=code,
+        content={"detail": exc.message, "details": exc.details},
+    )
+
+
 cors_origens_raw = (settings.CORS_ORIGINS or "*").strip()
 if cors_origens_raw == "*":
     cors_origens = ["*"]
@@ -92,24 +139,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Middleware de cabeçalhos de segurança defensivos (OWASP Secure Headers)
 app.add_middleware(SecurityHeadersMiddleware)
+
 
 @app.get("/")
 async def root():
     return {"message": "API do Ecossistema de Vendas (Refatorada) operante!"}
 
+
 @app.get("/health", tags=["Sistema"])
 async def health_check(response: Response):
     """
-    Endpoint de monitoramento de saúde do sistema.
-    Verifica a conectividade ativa com PostgreSQL, Redis e status das chaves de API.
-    Retorna HTTP 200 se saudável ou HTTP 503 se dependências vitais falharem.
+    Endpoint de monitoramento de saúde e telemetria operacional do ecossistema.
+    Verifica conectividade real com PostgreSQL, Redis (via PING + SCAN não-bloqueante),
+    chaves de API, estado do Kill-Switch global e modo Sandbox.
     """
+    cfg_memoria = SettingsService.obter_cache_memoria()
     saude = {
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "componentes": {}
+        "ambiente": settings.ENVIRONMENT,
+        "gateway_whatsapp": "send_inteligentte" if settings.SEND_API_KEY else "uazapi",
+        "ia_silenciada_global": cfg_memoria.ia_silenciada_global,
+        "modo_24h_inbound": cfg_memoria.modo_24h_inbound,
+        "sandbox_mode": settings.SANDBOX_MODE,
+        "buffers_pendentes": 0,
+        "tasks_ativas": get_active_background_tasks_count(),
+        "componentes": {},
     }
 
     # 1. Checa PostgreSQL
@@ -121,40 +177,46 @@ async def health_check(response: Response):
         saude["componentes"]["postgres"] = f"erro: {str(e)}"
         saude["status"] = "degraded"
 
-    # 2. Checa Redis
+    # 2. Checa Redis + contagem não-bloqueante de buffers
     try:
         pong = await redis_client.ping()
         saude["componentes"]["redis"] = "conectado" if pong else "erro"
+        if pong:
+            saude["buffers_pendentes"] = await default_redis_buffer_gateway.contar_buffers_pendentes()
     except Exception as e:
         saude["componentes"]["redis"] = f"erro: {str(e)}"
         saude["status"] = "degraded"
 
     # 3. Checa Chaves de Serviços Externos e Alertas Operacionais
     saude["componentes"]["uazapi_token"] = bool(settings.UAZAPI_TOKEN)
+    saude["componentes"]["send_api_key"] = bool(settings.SEND_API_KEY)
     saude["componentes"]["openai_key"] = bool(settings.OPENAI_API_KEY)
 
     try:
         alerta_cota = await redis_client.get("alerta_sistema:openai_sem_creditos")
         if alerta_cota:
             saude["componentes"]["openai_creditos"] = "esgotado"
-            saude["alerta_operacional"] = "Créditos da OpenAI esgotados! Leads recebidos foram direcionados ao transbordo humano sem disparos automáticos."
+            saude["alerta_operacional"] = (
+                "Créditos da OpenAI esgotados! Leads recebidos foram direcionados ao transbordo humano sem disparos automáticos."
+            )
             saude["status"] = "degraded"
         else:
             saude["componentes"]["openai_creditos"] = "operante"
     except Exception:
-        pass
+        saude["componentes"]["openai_creditos"] = "desconhecido"
 
-    if not saude["componentes"]["uazapi_token"] or not saude["componentes"]["openai_key"]:
+    tem_gateway_whatsapp = bool(saude["componentes"]["uazapi_token"] or saude["componentes"]["send_api_key"])
+    if not tem_gateway_whatsapp or not saude["componentes"]["openai_key"]:
         saude["status"] = "degraded"
 
-    # Define HTTP 503 para que balanceadores de carga não enviem tráfego em caso de falha crítica
     if saude["status"] != "healthy":
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
 
     return saude
 
-# Incluindo todos os nossos roteadores ("Gavetas")
+
 app.include_router(leads.router)
 app.include_router(webhook.router)
+app.include_router(webhook.router, prefix="/webhooks", include_in_schema=False)
 app.include_router(analytics.router)
 app.include_router(settings_router.router)

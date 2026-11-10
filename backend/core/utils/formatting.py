@@ -44,7 +44,7 @@ def dividir_mensagens_whatsapp(
     # 1. Normaliza quebras de linha Windows e Unix (\r\n -> \n, \r -> \n)
     texto_limpo = texto.strip().replace("\r\n", "\n").replace("\r", "\n")
 
-    # 2. Divide exclusivamente pelos delimitadores definidos pela IA (||| ou \n\n)
+    # 2. Divide pelos delimitadores definidos pela IA (||| ou \n\n)
     partes_brutas = re.split(r"\|\|\|+|\n\s*\n+", texto_limpo)
 
     # 3. Higieniza cada balão, expurga pipes residuais e filtra vazios

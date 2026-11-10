@@ -21,15 +21,16 @@ class AnalyticsService:
     @classmethod
     async def obter_visao_geral(cls, db: AsyncSession) -> schemas.DashboardOverviewResponse:
         """
-        Consolida os 5 blocos analíticos em um único payload veloz para a home do Dashboard.
+        Consolida os 5 blocos analíticos em um único payload veloz para a home do Dashboard,
+        reutilizando a agregação financeira sem disparar consulta SQL duplicada.
         """
-        financeiro = await cls.obter_metricas_financeiras(db)
+        totais_dados = await AnalyticsRepository.obter_totais_e_financeiro(db)
+        financeiro = cls._montar_kpis_financeiros(totais_dados)
         funil = await cls.obter_metricas_funil(db)
         aquisicao = await cls.obter_metricas_aquisicao(db)
         perdas = await cls.obter_metricas_perdas(db)
         conversas = await cls.obter_metricas_conversas(db)
 
-        totais_dados = await AnalyticsRepository.obter_totais_e_financeiro(db)
         total_leads = totais_dados.get("total_leads", 0)
 
         return schemas.DashboardOverviewResponse(
@@ -43,12 +44,8 @@ class AnalyticsService:
         )
 
     @staticmethod
-    async def obter_metricas_financeiras(db: AsyncSession) -> schemas.FinanceiroKPIs:
-        """
-        Calcula os indicadores financeiros de pipeline, receita ganha e conversão.
-        """
-        dados = await AnalyticsRepository.obter_totais_e_financeiro(db)
-
+    def _montar_kpis_financeiros(dados: dict) -> schemas.FinanceiroKPIs:
+        """Transforma o dicionário bruto de totais financeiros em DTO tipado."""
         total_ganhos = dados.get("total_ganhos", 0)
         total_perdidos = dados.get("total_perdidos", 0)
         receita_ganha = dados.get("receita_ganha_reais", 0.0)
@@ -56,10 +53,7 @@ class AnalyticsService:
         valor_perdido = dados.get("valor_perdido_reais", 0.0)
         total_em_andamento = dados.get("total_em_andamento", 0)
 
-        # Ticket médio = Receita ganha / Quantidade de vendas
         ticket_medio = (receita_ganha / total_ganhos) if total_ganhos > 0 else 0.0
-
-        # Taxa de conversão sobre negócios finalizados (Ganhos / (Ganhos + Perdidos))
         total_finalizados = total_ganhos + total_perdidos
         taxa_conversao = ((total_ganhos / total_finalizados) * 100.0) if total_finalizados > 0 else 0.0
 
@@ -73,6 +67,14 @@ class AnalyticsService:
             total_leads_em_andamento=total_em_andamento,
             taxa_conversao_pct=round(taxa_conversao, 1),
         )
+
+    @classmethod
+    async def obter_metricas_financeiras(cls, db: AsyncSession) -> schemas.FinanceiroKPIs:
+        """
+        Calcula os indicadores financeiros de pipeline, receita ganha e conversão.
+        """
+        dados = await AnalyticsRepository.obter_totais_e_financeiro(db)
+        return cls._montar_kpis_financeiros(dados)
 
     @staticmethod
     async def obter_metricas_funil(db: AsyncSession) -> schemas.FunilKPIs:

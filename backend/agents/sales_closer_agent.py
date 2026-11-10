@@ -1,6 +1,8 @@
+from datetime import datetime
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 from core.logger import logger
-from core.openai_client import openai_client
+from core.openai_client import openai_client, is_openai_quota_error
 from core.config import settings
 from core.utils import higienizar_nome_perfil
 import models
@@ -9,6 +11,18 @@ from .prompts import (
     ORIENTACOES_POR_ESTAGIO,
     ORIENTACOES_FOLLOWUP,
 )
+
+
+def _obter_contexto_settings_dinamico() -> tuple[str, int]:
+    """Obtém o resumo do catálogo vigente e o limite de toques sem acoplamento circular de importação."""
+    try:
+        from services.settings import SettingsService
+        catalogo = SettingsService.montar_resumo_catalogo_prompt()
+        max_toques = int(SettingsService.obter_cache_memoria().cadencia.max_tentativas or 3)
+        return catalogo, max_toques
+    except Exception:
+        return "", 3
+
 
 def formatar_dialogo_para_chat(
     historico_recente: Optional[List[models.Interacao]],
@@ -50,32 +64,37 @@ async def gerar_resposta_vendedor(
     **kwargs
 ) -> Optional[str]:
     """
-    Gera a resposta humanizada do Vendedor ('Seu Zé') via GPT-4o,
-    alimentado pela Ficha do Lead, etapa atual da jornada, últimas mensagens imediatas
-    e diretrizes de proatividade comercial (Autonomous Closer Drive).
+    Gera a resposta enxuta e direta do Assistente Comercial ('Eli Gentil') via GPT-4o,
+    alimentado pela Ficha do Lead, portfólio oficial da Inteligentte Lab,
+    etapa atual da jornada, últimas mensagens imediatas e diretrizes de proatividade.
     """
     try:
         historico_lista = list(historico_recente) if historico_recente else []
         nome_validado = higienizar_nome_perfil(nome_cliente_bruto)
-        
-        # Identificação de nome de perfil do WhatsApp
+
         if nome_validado:
             instrucao_nome = f"\n[NOME_NO_PERFIL]: {nome_validado}"
         else:
             instrucao_nome = "\n[NOME_NO_PERFIL]: Não informado no perfil do WhatsApp."
 
-        # Orientação conforme a etapa do funil (FSM)
         etapa_atual = etapa_funil or models.EtapaFunil.QUALIFICACAO
-
         orientacao_estagio = ORIENTACOES_POR_ESTAGIO.get(etapa_atual, "Conduza a conversa de forma consultiva e empática.")
         ficha_formatada = ficha_resumo.strip() if ficha_resumo else "Primeiro contato, ainda sem dados acumulados."
-
         bloco_proatividade = f"\n{diretriz_proatividade}\n" if diretriz_proatividade else ""
+
+        catalogo_dinamico, _ = _obter_contexto_settings_dinamico()
+        bloco_catalogo = f"\n[{catalogo_dinamico}]\n" if catalogo_dinamico else ""
+
+        dias_pt = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
+        agora_br = datetime.now(ZoneInfo("America/Sao_Paulo"))
+        dia_semana_str = dias_pt[agora_br.weekday()]
+        bloco_data_hora = f"\n[REFERÊNCIA TEMPORAL ATUAL (Horário de Brasília)]: Hoje é {dia_semana_str}, {agora_br.strftime('%d/%m/%Y às %H:%M')}."
 
         bloco_contexto = f"""
 {PROMPT_BASE_VENDEDOR}
 {instrucao_nome}
-
+{bloco_data_hora}
+{bloco_catalogo}
 [FICHA ATUALIZADA DO CLIENTE - MEMÓRIA DE LONGO PRAZO]
 {ficha_formatada}
 
@@ -87,9 +106,7 @@ Objetivo Desta Etapa: {orientacao_estagio}
         mensagens = [{"role": "system", "content": bloco_contexto}]
         mensagens.extend(formatar_dialogo_para_chat(historico_lista, settings.JANELA_HISTORICO_RECENTE))
 
-        # Roteamento Dinâmico de Modelos (FinOps):
-        # Em NOVO_CONTATO e QUALIFICACAO, utiliza MODEL_CLOSER_FAST (gpt-4o-mini) para acolhimento e perguntas iniciais.
-        # Em NEGOCIACAO e FECHAMENTO, utiliza MODEL_CLOSER_ADVANCED (gpt-4o) para persuasão e fechamento de alto valor.
+        # Roteamento Dinâmico de Modelos (FinOps)
         if settings.DYNAMIC_MODEL_ROUTING:
             if etapa_atual in [models.EtapaFunil.NOVO_CONTATO, models.EtapaFunil.QUALIFICACAO]:
                 modelo_selecionado = settings.MODEL_CLOSER_FAST
@@ -106,25 +123,16 @@ Objetivo Desta Etapa: {orientacao_estagio}
         resposta = await openai_client.chat.completions.create(
             model=modelo_selecionado,
             messages=mensagens,
-            temperature=0.7,
-            max_tokens=350
+            temperature=0.45,
+            max_tokens=300
         )
 
-        conteudo = resposta.choices[0].message.content.strip()
+        conteudo = (resposta.choices[0].message.content or "").strip()
         logger.info(f"[VENDEDOR] 🤖 Resposta gerada com sucesso ({len(conteudo)} chars)")
         return conteudo
 
     except Exception as e:
-        err_str = str(e).lower()
-        termos_cota = [
-            "insufficient_quota",
-            "quota_exceeded",
-            "exceeded your current quota",
-            "credit_balance_exhausted",
-            "no credits remaining",
-            "billing_hard_limit_reached"
-        ]
-        if any(termo in err_str for termo in termos_cota):
+        if is_openai_quota_error(e):
             logger.critical(
                 f"[OPENAI COTA ESGOTADA] 🚨 Créditos da OpenAI esgotados! Silenciando IA para evitar envio de mensagens confusas ao cliente: {e}"
             )
@@ -136,23 +144,24 @@ Objetivo Desta Etapa: {orientacao_estagio}
 async def gerar_mensagem_followup(
     nome_cliente_bruto: str,
     ficha_resumo: Optional[str],
-    etapa_funil: models.EtapaFunil,
+    etapa_funil: Optional[models.EtapaFunil],
     tentativa: int,
     historico_recente: Optional[List[models.Interacao]] = None
 ) -> Optional[str]:
     """
-    Gera mensagem de resgate/follow-up proativa e humanizada do Vendedor ('Seu Zé')
-    conforme a tentativa na cadência (1, 2 ou 3) e o histórico prévio.
-    Implementa o requisito RF11 do PRD (Motor de Follow-up Cronometrado).
+    Gera mensagem de resgate/follow-up direta e sem pedidos de desculpa do Assistente ('Eli Gentil')
+    conforme a tentativa na cadência e o histórico prévio (RF11 do PRD).
     """
     try:
         historico_lista = list(historico_recente) if historico_recente else []
+        etapa_atual = etapa_funil or models.EtapaFunil.QUALIFICACAO
         nome_validado = higienizar_nome_perfil(nome_cliente_bruto)
-        # Identificação de nome de perfil do WhatsApp
         if nome_validado:
             instrucao_nome = f"\n[NOME_NO_PERFIL]: {nome_validado}"
         else:
             instrucao_nome = "\n[NOME_NO_PERFIL]: Não informado no perfil do WhatsApp."
+
+        catalogo_dinamico, max_toques = _obter_contexto_settings_dinamico()
 
         diretriz_tentativa = ORIENTACOES_FOLLOWUP.get(
             tentativa,
@@ -160,23 +169,24 @@ async def gerar_mensagem_followup(
         )
 
         ficha_formatada = ficha_resumo.strip() if ficha_resumo else "Em processo de qualificação."
+        bloco_catalogo = f"\n[{catalogo_dinamico}]\n" if catalogo_dinamico else ""
 
         bloco_contexto = f"""
 {PROMPT_BASE_VENDEDOR}
 {instrucao_nome}
-
+{bloco_catalogo}
 [FICHA ATUALIZADA DO CLIENTE - MEMÓRIA DE LONGO PRAZO]
 {ficha_formatada}
 
-[CADÊNCIA DE RESGATE / FOLLOW-UP ATIVO - TOQUE {tentativa}/3]
-Etapa do Funil Onde o Lead Parou: {etapa_funil.value}
+[CADÊNCIA DE RESGATE / FOLLOW-UP ATIVO - TOQUE {tentativa}/{max_toques}]
+Etapa do Funil Onde o Lead Parou: {etapa_atual.value}
 Diretriz Deste Toque: {diretriz_tentativa}
 
 INSTRUÇÕES CRÍTICAS DE CADÊNCIA:
 1. Jamais seja agressivo ou pareça cobrador. Você é um parceiro comercial consultivo e atencioso.
 2. Seja conciso (1 a 3 frases). Lembre que é WhatsApp.
-3. Se for Toque 1 ou 2, termine com uma pergunta leve para estimular a resposta.
-4. Se for Toque 3, NÃO force resposta: agradeça e encerre desejando sucesso, deixando claro que a porta continua aberta.
+3. Se não for o último toque, termine com uma pergunta leve para estimular a resposta.
+4. Se for o último toque ({max_toques}), NÃO force resposta: agradeça e encerre desejando sucesso, deixando claro que a porta continua aberta.
 """
 
         mensagens = [{"role": "system", "content": bloco_contexto}]
@@ -184,18 +194,17 @@ INSTRUÇÕES CRÍTICAS DE CADÊNCIA:
 
         mensagens.append({
             "role": "system",
-            "content": f"[INSTRUÇÃO FINAL]: O cliente parou de responder. Envie a mensagem proativa de Follow-up (Toque {tentativa}) seguindo o tom caloroso e natural do Seu Zé."
+            "content": f"[INSTRUÇÃO FINAL]: O cliente parou de responder. Envie a mensagem de Follow-up (Toque {tentativa}/{max_toques}) seguindo estritamente o tom curto e direto do Eli Gentil (1 a 2 linhas, sem pedir desculpas e sem 'oi, sumiu?')."
         })
 
-        # Roteamento de Modelo para Follow-up (FinOps)
         if settings.DYNAMIC_MODEL_ROUTING:
-            modelo = settings.MODEL_CLOSER_ADVANCED if (etapa_funil in [models.EtapaFunil.NEGOCIACAO, models.EtapaFunil.FECHAMENTO]) else settings.MODEL_CLOSER_FAST
+            modelo = settings.MODEL_CLOSER_ADVANCED if (etapa_atual in [models.EtapaFunil.NEGOCIACAO, models.EtapaFunil.FECHAMENTO]) else settings.MODEL_CLOSER_FAST
         else:
             modelo = settings.MODEL_CLOSER
 
         logger.info(
-            f"[FOLLOWUP VENDEDOR] ⏳ Gerando Toque {tentativa}/3 para {nome_validado or 'Cliente'} | "
-            f"Modelo: {modelo} | Etapa: {etapa_funil.value}"
+            f"[FOLLOWUP VENDEDOR] ⏳ Gerando Toque {tentativa}/{max_toques} para {nome_validado or 'Cliente'} | "
+            f"Modelo: {modelo} | Etapa: {etapa_atual.value}"
         )
 
         resposta = await openai_client.chat.completions.create(
@@ -205,21 +214,12 @@ INSTRUÇÕES CRÍTICAS DE CADÊNCIA:
             max_tokens=250
         )
 
-        conteudo = resposta.choices[0].message.content.strip()
+        conteudo = (resposta.choices[0].message.content or "").strip()
         logger.info(f"[FOLLOWUP VENDEDOR] ✉️ Mensagem gerada com sucesso ({len(conteudo)} chars)")
         return conteudo
 
     except Exception as e:
-        err_str = str(e).lower()
-        termos_cota = [
-            "insufficient_quota",
-            "quota_exceeded",
-            "exceeded your current quota",
-            "credit_balance_exhausted",
-            "no credits remaining",
-            "billing_hard_limit_reached"
-        ]
-        if any(termo in err_str for termo in termos_cota):
+        if is_openai_quota_error(e):
             logger.critical(
                 f"[OPENAI COTA ESGOTADA - FOLLOWUP] 🚨 Créditos da OpenAI esgotados! Silenciando follow-up: {e}"
             )

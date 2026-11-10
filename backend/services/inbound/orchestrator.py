@@ -2,9 +2,11 @@ import asyncio
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.background import spawn_background_task
 from core.database import AsyncSessionLocal
 from core.logger import logger
 from core.config import settings
+from core.temporal import BusinessHoursPolicy
 from core.utils import higienizar_nome_perfil
 from core.protocols import WhatsAppGatewayProtocol, CacheBufferProtocol
 from repositories.lead_repository import LeadRepository
@@ -12,6 +14,7 @@ from services.lead import LeadService
 from services.cadence import FollowupService
 from services.handover import TransbordoService
 from services.pacing import ConversationPacingService
+from services.settings import SettingsService
 from services.inbound.optout import OptOutGuard
 from services.inbound.failover import InboundFailoverService
 from services.inbound.consolidation import MessageConsolidator, default_message_consolidator
@@ -27,40 +30,55 @@ class InboundService:
     Segue rigorosamente os princípios SOLID:
     - SRP: Orquestra o ciclo de vida da mensagem; delega consolidação, pacing, opt-out e failover.
     - DIP: Injeta gateways de WhatsApp, Buffer e Consolidadores desacoplados.
-    - OCP: Políticas de pacing e modelos configuráveis via Twelve-Factor Settings.
+    - OCP: Políticas de pacing, horário comercial, Kill-Switch e modelos configuráveis em tempo real.
     """
 
-    # Injeção de dependências de infraestrutura (DIP) com defaults canônicos
     whatsapp_gateway: WhatsAppGatewayProtocol = default_uazapi_gateway
     buffer_gateway: CacheBufferProtocol = default_redis_buffer_gateway
     message_consolidator: MessageConsolidator = default_message_consolidator
 
-    # Semáforo Global de Concorrência de IA (FinOps / Proteção contra Rate Limits)
     SEMAFORO_CONCORRENCIA_IA = asyncio.Semaphore(settings.CONCURRENCY_SEMAPHORE_LIMIT)
 
     @classmethod
     async def processar_debounce(cls, telefone: str, nome_contato: str, timestamp_disparo: str | float) -> None:
-        """Ponto de entrada assíncrono acionado pelo Webhook pós-debounce."""
+        """Ponto de entrada assíncrono acionado pelo Webhook pós-debounce com serialização por telefone."""
         try:
-            await asyncio.sleep(settings.DEBOUNCE_SECONDS)
+            cfg = SettingsService.obter_cache_memoria()
+            janela_debounce = float(cfg.debounce_segundos or settings.DEBOUNCE_SECONDS)
+            await asyncio.sleep(janela_debounce)
 
-            eh_ultima = await cls.buffer_gateway.verificar_se_e_ultima(telefone, timestamp_disparo)
-            if not eh_ultima:
-                logger.info(f"[DEBOUNCE] ⏳ Nova mensagem detectada para {telefone}. Descartando lote anterior.")
+            chave_lock = f"lock:inbound:{telefone}"
+            token_lock = None
+            for _ in range(15):
+                eh_ultima = await cls.buffer_gateway.verificar_se_e_ultima(telefone, timestamp_disparo)
+                if not eh_ultima:
+                    logger.info(f"[DEBOUNCE] ⏳ Nova mensagem detectada para {telefone}. Descartando lote anterior.")
+                    return
+                token_lock = await cls.buffer_gateway.adquirir_lock(chave_lock, ttl_segundos=60)
+                if token_lock:
+                    break
+                logger.info(f"[INBOUND LOCK] 🔒 Processamento ativo em curso para {telefone}. Aguardando liberação do turno anterior...")
+                await asyncio.sleep(1.5)
+
+            if not token_lock:
+                logger.warning(f"[INBOUND LOCK] ⚠️ Timeout aguardando liberação de lock para {telefone}.")
                 return
 
-            logger.info(
-                f"[DEBOUNCE] 🚀 Cliente {telefone} parou de digitar por {settings.DEBOUNCE_SECONDS}s. "
-                f"Consolidando lote completo..."
-            )
+            try:
+                logger.info(
+                    f"[DEBOUNCE] 🚀 Cliente {telefone} parou de digitar por {janela_debounce}s. "
+                    f"Consolidando lote completo..."
+                )
 
-            texto_consolidado = await cls._consolidar_mensagens_buffer(telefone)
-            if not texto_consolidado:
-                logger.info(f"[DEBOUNCE] Nenhuma mensagem válida com conteúdo para processar de {telefone}")
-                return
+                texto_consolidado = await cls._consolidar_mensagens_buffer(telefone)
+                if not texto_consolidado:
+                    logger.info(f"[DEBOUNCE] Nenhuma mensagem válida com conteúdo para processar de {telefone}")
+                    return
 
-            async with AsyncSessionLocal() as db:
-                await cls._executar_pipeline_atendimento(db, telefone, nome_contato, texto_consolidado)
+                async with AsyncSessionLocal() as db:
+                    await cls._executar_pipeline_atendimento(db, telefone, nome_contato, texto_consolidado)
+            finally:
+                await cls.buffer_gateway.liberar_lock(chave_lock, token_lock)
 
         except Exception as e:
             logger.error(f"[INBOUND ERRO] ❌ Falha crítica no processamento de {telefone}: {e}", exc_info=True)
@@ -111,7 +129,7 @@ class InboundService:
         nome_contato: str,
         texto_consolidado: str
     ) -> None:
-        """Orquestra as verificações de segurança, persistência e cognição do lead."""
+        """Orquestra as verificações de segurança, Kill-Switch, persistência e cognição do lead."""
         lead = await cls._obter_ou_criar_lead(db, telefone, nome_contato)
 
         if lead.opt_out:
@@ -130,6 +148,24 @@ class InboundService:
         )
 
         await FollowupService.cancelar_followups_pendentes(db, lead.id)
+
+        # 🛡️ GOVERNANÇA GLOBAL: Kill-Switch da Sala de Máquinas
+        cfg_operacao = SettingsService.obter_cache_memoria()
+        if cfg_operacao.ia_silenciada_global:
+            logger.warning(
+                f"[KILL-SWITCH GLOBAL ATIVO] 🛡️ Mensagem de {telefone} persistida com segurança. "
+                f"Resposta autônoma pausada pelo gestor."
+            )
+            return
+
+        # 🕒 GOVERNANÇA DE JANELA RECEPTIVA: Modo 24/7 vs. Estrito ao Horário Comercial
+        if not cfg_operacao.modo_24h_inbound and not BusinessHoursPolicy.esta_em_horario_comercial():
+            await FollowupService.agendar_proximo_followup(db, lead)
+            logger.info(
+                f"[JANELA RECEPTIVA] 🌙 Mensagem de {telefone} recebida fora do expediente (Modo 24h desativado). "
+                f"Retorno programado automaticamente para a abertura do horário comercial."
+            )
+            return
 
         if lead.controle in [models.ControleAtendimento.TRANSBORDO_SOLICITADO, models.ControleAtendimento.HUMANO_ASSUMIU]:
             retomou = await TransbordoService.verificar_e_executar_retomada_automatica(db, lead)
@@ -211,8 +247,13 @@ class InboundService:
             if hasattr(analise.dados_qualificacao, "model_dump")
             else analise.dados_qualificacao
         )
-        if analise.motivo_perda:
+
+        # Higieniza motivo_perda legado caso o lead retome negociação ativa ou converta em GANHO
+        if analise.desfecho_sugerido in [models.DesfechoLead.EM_ANDAMENTO, models.DesfechoLead.GANHO]:
+            lead.motivo_perda = None
+        elif analise.motivo_perda:
             lead.motivo_perda = analise.motivo_perda
+
         if analise.valor_estimado is not None:
             lead.valor_estimado = analise.valor_estimado
         if analise.tags_sugeridas:
@@ -221,9 +262,17 @@ class InboundService:
         transbordo_fechamento_pendente = False
         if analise.transbordo_sugerido:
             motivo_analise = (analise.justificativa or "").lower()
-            if lead.etapa_funil == models.EtapaFunil.FECHAMENTO and (
-                "fechamento" in motivo_analise or "contrato" in motivo_analise or "dados" in motivo_analise
-            ):
+            eh_fechamento = bool(
+                getattr(analise, "pronto_fechamento", False)
+                or (
+                    lead.etapa_funil == models.EtapaFunil.FECHAMENTO
+                    and any(
+                        t in motivo_analise
+                        for t in ("fechamento", "contrato", "dados", "diagnóstico", "diagnostico", "reunião", "reuniao", "agendad", "eduardo")
+                    )
+                )
+            )
+            if eh_fechamento:
                 transbordo_fechamento_pendente = True
             else:
                 await TransbordoService.executar_transbordo(
@@ -232,7 +281,10 @@ class InboundService:
                     motivo=analise.justificativa,
                     analise=analise
                 )
-                asyncio.create_task(cls.disparar_auditoria_background(lead_id))
+                spawn_background_task(
+                    cls.disparar_auditoria_background(lead_id),
+                    name=f"auditoria_transbordo_{lead_id}",
+                )
                 logger.warning(f"[TRANSBORDO ACIONADO] 🛑 Lead {telefone} em transbordo. IA silenciada.")
                 return
 
@@ -240,16 +292,22 @@ class InboundService:
             analise.desfecho_sugerido in [models.DesfechoLead.GANHO, models.DesfechoLead.PERDIDO]
             and (desfecho_anterior != analise.desfecho_sugerido or not lead.dossie_comercial)
         )
+        # Persiste o novo estado da FSM ANTES de disparar tasks de auditoria em sessão paralela
+        await db.commit()
         if desfecho_mudou_para_fechado:
-            asyncio.create_task(cls.disparar_auditoria_background(lead_id))
+            spawn_background_task(
+                cls.disparar_auditoria_background(lead_id),
+                name=f"auditoria_fechamento_{lead_id}",
+            )
 
         nome_ia = str(lead.nome or nome_contato or "Cliente")
-        lead_id = getattr(lead, "id")
         pacing_eval = await ConversationPacingService.avaliar_e_incrementar(
             lead_id=lead_id,
             etapa=lead.etapa_funil,
             nome_cliente=nome_ia
         )
+
+        cfg_operacao = SettingsService.obter_cache_memoria()
 
         if pacing_eval.deve_encerrar_por_estagnacao:
             lead.desfecho = models.DesfechoLead.PERDIDO
@@ -257,11 +315,18 @@ class InboundService:
             lead.motivo_perda = f"Estagnação Conversacional ({pacing_eval.mensagens_na_etapa} msgs em {lead.etapa_funil.value})"
             await db.commit()
 
-            despedida_humana = pacing_eval.mensagem_despedida_humana or OptOutGuard.MENSAGEM_CONFIRMACAO
+            despedida_humana = (
+                cfg_operacao.mensagem_inatividade
+                or pacing_eval.mensagem_despedida_humana
+                or OptOutGuard.MENSAGEM_CONFIRMACAO
+            )
             await LeadRepository.add_interaction(db, lead_id, models.InteracaoOrigem.IA, despedida_humana)
             await cls.whatsapp_gateway.enviar_mensagem(telefone, despedida_humana, delay_ms=1000)
             await FollowupService.cancelar_followups_pendentes(db, lead_id, models.StatusFollowup.ABORTADO)
-            asyncio.create_task(cls.disparar_auditoria_background(lead_id))
+            spawn_background_task(
+                cls.disparar_auditoria_background(lead_id),
+                name=f"auditoria_estagnacao_{lead_id}",
+            )
             logger.warning(
                 f"[PACING GUARD - ESTAGNAÇÃO] 🛑 Lead {telefone} atingiu {pacing_eval.mensagens_na_etapa} mensagens em {lead.etapa_funil.value}. "
                 f"Encerrado com despedida humana e desfecho PERDIDO (Zero-Touch)."
@@ -287,17 +352,23 @@ class InboundService:
             return
 
         lead = await LeadRepository.recarregar_lead(db, lead.id) or lead
-        if lead.controle in [models.ControleAtendimento.HUMANO_ASSUMIU, models.ControleAtendimento.TRANSBORDO_SOLICITADO] or lead.opt_out:
+        if (
+            lead.controle in [models.ControleAtendimento.HUMANO_ASSUMIU, models.ControleAtendimento.TRANSBORDO_SOLICITADO]
+            or lead.opt_out
+            or SettingsService.esta_ia_silenciada()
+        ):
             logger.warning(
                 f"[COLISAO EM VOO EVITADA] 🛑 Disparo da IA cancelado para {telefone}. "
-                f"Controle alterado para {lead.controle.value} (Opt-out: {lead.opt_out}) durante o processamento da IA."
+                f"Controle: {lead.controle.value} | Opt-out: {lead.opt_out} | Kill-Switch: {SettingsService.esta_ia_silenciada()}."
             )
             return
 
         partes_mensagem, _ = await cls.whatsapp_gateway.enviar_mensagem_humanizada(
             telefone=telefone,
             texto_bruto=resposta_ia,
-            delay_base_ms=1500
+            delay_base_ms=cfg_operacao.pacing.delay_base_ms,
+            simular_digitacao=cfg_operacao.pacing.simular_digitacao,
+            intervalo_entre_baloes=cfg_operacao.pacing.intervalo_entre_baloes_seg,
         )
 
         texto_historico = "\n\n".join(partes_mensagem) if partes_mensagem else resposta_ia
@@ -314,14 +385,17 @@ class InboundService:
         )
 
         if transbordo_fechamento_pendente:
-            motivo_fechamento = analise.justificativa or "Fechamento Comercial / Assinatura de Contrato"
+            motivo_fechamento = analise.justificativa or "Reunião de Diagnóstico Agendada com o Eduardo"
             await TransbordoService.executar_transbordo(
                 db=db,
                 lead=lead,
                 motivo=motivo_fechamento,
                 analise=analise
             )
-            asyncio.create_task(cls.disparar_auditoria_background(lead_id))
+            spawn_background_task(
+                cls.disparar_auditoria_background(lead_id),
+                name=f"auditoria_fechamento_transbordo_{lead_id}",
+            )
             logger.info(
                 f"[TRANSBORDO FECHAMENTO] 🤝 Mensagem de acolhimento enviada para {telefone}. "
                 f"Atendimento escalado para formalização e assinatura de contrato pela equipe humana."

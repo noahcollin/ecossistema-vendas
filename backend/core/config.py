@@ -17,22 +17,29 @@ class Settings(BaseSettings):
     # Gateway WhatsApp (Uazapi)
     UAZAPI_URL: str = "https://inteligentte.uazapi.com"
     UAZAPI_TOKEN: str = ""
+
+    # Gateway WhatsApp Oficial (Send Inteligentte / Meta Cloud API)
+    SEND_API_URL: str = "https://whatsapp-api-oficial-nls9.onrender.com/api/v1"
+    SEND_API_KEY: str = ""
+    SEND_WEBHOOK_SECRET: str = ""
+    SEND_POLL_INTERVAL_SECONDS: float = 3.0
+    SEND_CURSOR_FILE: str = "send_cursor.txt"
     
     # Provedor de Inteligência Artificial (OpenAI)
     OPENAI_API_KEY: str = ""
     
     # Parâmetros Operacionais e Heurísticas de Negócio
-    DEBOUNCE_SECONDS: float = 4.5
+    DEBOUNCE_SECONDS: float = 8.0
     JANELA_HISTORICO_RECENTE: int = 6  # Janela de mensagens imediatas repassadas aos agentes
     JANELA_HISTORICO_MAX: int = 20
 
     # Guardião de Velocidade Conversacional & FinOps Anti-Loop (Autonomous Closer Drive)
-    PACING_THRESHOLD_PROACTIVE: int = 10   # Inicia postura ativa de fechamento (Seu Zé toma as rédeas)
+    PACING_THRESHOLD_PROACTIVE: int = 10   # Inicia postura ativa de fechamento (Eli Gentil toma as rédeas)
     PACING_THRESHOLD_DECISIVE: int = 20    # Chamada conclusiva amigável (fechamento direto ou descarte)
     PACING_THRESHOLD_MAX: int = 30         # Trava FinOps: encerramento cordial e desqualificação autônoma
     
     # Modo de Teste / Sandbox e Filtro de Segurança
-    SANDBOX_MODE: bool = True
+    SANDBOX_MODE: bool = False
     WHITELIST_PHONE_SUFFIX: str = "91923098"
     
     # Segurança de Entrada, Webhook e Administração
@@ -40,7 +47,8 @@ class Settings(BaseSettings):
     ADMIN_API_KEY: str = ""         # Se definido, protege rotas /leads e /analytics via Bearer ou X-API-Key
     CORS_ORIGINS: str = "*"         # Origens permitidas separadas por vírgula (ex: 'https://painel.com,http://localhost:3000')
     
-    # Logging do Sistema
+    # Ambiente de Execução e Logging do Sistema
+    ENVIRONMENT: str = "development"  # 'development' | 'staging' | 'production'
     LOG_LEVEL: str = "INFO"
 
     # Parâmetros de Alta Concorrência e Pool do PostgreSQL
@@ -66,11 +74,11 @@ class Settings(BaseSettings):
     OPENAI_TIMEOUT_SECONDS: float = 30.0
     OPENAI_MAX_RETRIES: int = 2
 
-    # Motor de Cadência e Follow-Up Cronometrado (Fase 2 do PRD - RF11 e RF12)
+    # Motor de Cadência e Follow-Up Cronometrado (Calibrado para Janela de 24h da Meta Cloud API: 2h + 6h + 12h = 20h)
     FOLLOWUP_ENABLED: bool = True
     FOLLOWUP_INTERVAL_1_HOURS: float = 2.0
-    FOLLOWUP_INTERVAL_2_HOURS: float = 24.0
-    FOLLOWUP_INTERVAL_3_HOURS: float = 72.0
+    FOLLOWUP_INTERVAL_2_HOURS: float = 6.0
+    FOLLOWUP_INTERVAL_3_HOURS: float = 12.0
     FOLLOWUP_WORKER_POLL_INTERVAL_SECONDS: int = 30
     BUSINESS_HOURS_START: str = "08:30"
     BUSINESS_HOURS_END: str = "18:30"
@@ -84,7 +92,7 @@ class Settings(BaseSettings):
     FOLLOWUP_SIMULAR_DIGITACAO: bool = True     # Simula 'digitando...' antes do envio
 
     # Transbordo Humano e Gestão de Exceções (Seção 6 e RF10 do PRD)
-    SUPERVISOR_PHONE: str = ""                  # Telefone WhatsApp da equipe/supervisor para alertas
+    SUPERVISOR_PHONE: str = "558496552286"      # Telefone WhatsApp da equipe/supervisor para alertas (Eduardo)
     TRANSBORDO_WEBHOOK_URL: str = ""             # Webhook externo para alertas (Slack, Discord, CRM)
     TRANSBORDO_VIP_VALOR_MIN: float = 10000.0    # Gatilho de alto valor para transbordo consultivo VIP
     TRANSBORDO_ENVIAR_MENSAGEM_CLIENTE: bool = False  # False para simulação humana 100% invisível ao cliente

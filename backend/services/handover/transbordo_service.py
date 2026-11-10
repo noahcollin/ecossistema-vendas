@@ -1,30 +1,41 @@
-import asyncio
-from typing import List, Optional
+"""
+Serviço de Domínio para Transbordo Humano Dinâmico e Handover (Clean Architecture).
+Utiliza composição explícita em vez de herança acoplada com DashboardService (SOLID / LSP).
+"""
+
+from typing import Optional
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 
+from core.background import spawn_background_task
 from core.logger import logger
 from core.config import settings
 from repositories.lead_repository import LeadRepository
 from services.cadence import FollowupService
 from services.handover.dashboard_service import DashboardService
 from integrations.transbordo_notifier import TransbordoNotifier
+from integrations.send_inteligentte.client import solicitar_handover_send
 import models
 import schemas
 
 
-class TransbordoService(DashboardService):
+class TransbordoService:
     """
-    Camada de serviço de negócio para Transbordo Humano Dinâmico e Handover.
     Orquestra escalonamento, silenciamento da IA, captura de intervenções
     humanas e retomada contextual do Piloto Automático.
-    Herda métodos operacionais de DashboardService para compatibilidade total.
+    Expõe operações de painel por composição explícita com DashboardService.
     """
 
-    # Delegação para o gateway de notificações
-    formatar_mensagem_alerta = TransbordoNotifier.formatar_alerta_supervisor
-    notificar_equipe = TransbordoNotifier.notificar_equipe
+    # Composição explícita para o gateway de notificações
+    formatar_mensagem_alerta = staticmethod(TransbordoNotifier.formatar_alerta_supervisor)
+    notificar_equipe = staticmethod(TransbordoNotifier.notificar_equipe)
+
+    # Composição explícita com DashboardService (substitui herança acoplada mantendo 100% da interface)
+    assumir_atendimento = staticmethod(DashboardService.assumir_atendimento)
+    devolver_para_ia = staticmethod(DashboardService.devolver_para_ia)
+    enviar_mensagem_humana_painel = DashboardService.enviar_mensagem_humana_painel
+    listar_pendentes = staticmethod(DashboardService.listar_pendentes)
 
     @classmethod
     async def executar_transbordo(
@@ -37,14 +48,19 @@ class TransbordoService(DashboardService):
         """
         Escala o atendimento para transbordo:
         - Altera controle para TRANSBORDO_SOLICITADO;
-        - Aplica tags REQUER_ATENCAO e TRANSBORDO;
+        - Aplica tags REQUER_ATENCAO e TRANSBORDO (e PRONTO_FECHAMENTO quando aplicável);
         - Cancela imediatamente todos os follow-ups programados;
-        - Dispara notificações em background sem mensagens robóticas ao cliente.
+        - Dispara notificações rastreadas em background sem mensagens robóticas ao cliente.
         """
         lead.controle = models.ControleAtendimento.TRANSBORDO_SOLICITADO
         tags_adicionar = ["REQUER_ATENCAO", "TRANSBORDO"]
         motivo_lower = (motivo or "").lower()
-        if "fechamento" in motivo_lower or "contrato" in motivo_lower:
+        eh_fechamento = bool(
+            (analise and getattr(analise, "pronto_fechamento", False))
+            or "fechamento" in motivo_lower
+            or "contrato" in motivo_lower
+        )
+        if eh_fechamento:
             tags_adicionar.extend(["PRONTO_FECHAMENTO", "AGUARDANDO_CONTRATO"])
         LeadRepository.sincronizar_tags(lead, adicionar=tags_adicionar)
 
@@ -60,7 +76,6 @@ class TransbordoService(DashboardService):
         await db.commit()
         await db.refresh(lead)
 
-        # Prepara snapshot desacoplado do ORM para execução segura em segundo plano
         texto_alerta = cls.formatar_mensagem_alerta(lead, motivo, analise)
         dados_lead = {
             "lead_id": lead.id,
@@ -71,13 +86,22 @@ class TransbordoService(DashboardService):
             "valor_estimado": lead.valor_estimado,
             "resumo_perfil": lead.resumo_perfil,
         }
-        asyncio.create_task(cls.notificar_equipe(
-            lead=None,
-            motivo=motivo,
-            analise=analise,
-            texto_alerta=texto_alerta,
-            dados_lead=dados_lead
-        ))
+        spawn_background_task(
+            cls.notificar_equipe(
+                lead=None,
+                motivo=motivo,
+                analise=analise,
+                texto_alerta=texto_alerta,
+                dados_lead=dados_lead
+            ),
+            name=f"notificar_transbordo_{lead.id}",
+        )
+
+        if settings.SEND_API_KEY and lead.telefone:
+            spawn_background_task(
+                solicitar_handover_send(telefone=lead.telefone, reason=motivo),
+                name=f"send_handover_{lead.id}",
+            )
 
         logger.warning(
             f"[TRANSBORDO EXECUTADO] 🚨 Lead {lead.telefone} em TRANSBORDO_SOLICITADO. "
@@ -106,19 +130,12 @@ class TransbordoService(DashboardService):
     ) -> bool:
         """
         Verifica se o atendimento humano entrou em inatividade prolongada (timeout).
-        Caso o atendente não envie mensagens por mais de settings.TRANSBORDO_INACTIVITY_TIMEOUT_MINUTES:
-        - Reassume o atendimento para PILOTO_IA de forma automática;
-        - Registra log de auditoria no histórico de interações;
-        - Reativa o motor de cadência e follow-up se o lead estiver em andamento;
-        - Retorna True (permitindo que a IA responda imediatamente à nova mensagem do cliente).
-        Caso esteja dentro da janela ativa de intervenção humana:
-        - Retorna False (mantendo a IA em silêncio para proteger o atendente).
+        Retorna True se reassumiu para PILOTO_IA ou False se ainda dentro da janela humana.
         """
         timeout_minutos = settings.TRANSBORDO_INACTIVITY_TIMEOUT_MINUTES
         if timeout_minutos <= 0:
             return False
 
-        # Busca a última manifestação da equipe humana (ou o momento do transbordo)
         ultima_manifestacao = await LeadRepository.get_latest_interaction_by_origins(
             db=db,
             lead_id=lead.id,
@@ -144,10 +161,8 @@ class TransbordoService(DashboardService):
         delta_minutos = delta_segundos / 60.0
 
         if delta_minutos < timeout_minutos:
-            # Ainda dentro da janela de intervenção humana ativa
             return False
 
-        # Timeout atingido! Executa a transição de volta para o PILOTO_IA
         lead.controle = models.ControleAtendimento.PILOTO_IA
         LeadRepository.sincronizar_tags(lead, remover=["REQUER_ATENCAO", "EM_ATENDIMENTO_HUMANO"])
 
@@ -163,9 +178,11 @@ class TransbordoService(DashboardService):
         )
 
         perfil_atual = lead.resumo_perfil or ""
-        lead.resumo_perfil = f"{perfil_atual}\n\n[Contexto]: Atendimento retomado automaticamente pela IA após inatividade da equipe humana ({int(delta_minutos)}min).".strip()
+        lead.resumo_perfil = (
+            f"{perfil_atual}\n\n[Contexto]: Atendimento retomado automaticamente pela IA "
+            f"após inatividade da equipe humana ({int(delta_minutos)}min)."
+        ).strip()
 
-        # Reativa cadência se estiver em andamento
         if lead.desfecho == models.DesfechoLead.EM_ANDAMENTO:
             await FollowupService.agendar_proximo_followup(db, lead)
 
@@ -219,13 +236,7 @@ class TransbordoService(DashboardService):
         texto: str,
         sender_name: Optional[str] = None
     ) -> models.Lead:
-        """
-        Cadastra um novo lead originado por iniciativa direta de um atendente humano (Outbound Humano):
-        - Cria lead com tipo_entrada = OUTBOUND, controle = HUMANO_ASSUMIU e tags = ['OUTBOUND', 'EM_ATENDIMENTO_HUMANO'];
-        - Grava a mensagem inicial como InteracaoOrigem.HUMANO;
-        - Registra log de auditoria no histórico;
-        - Impede a IA de interferir quando o cliente responder.
-        """
+        """Cadastra um novo lead originado por iniciativa direta de um atendente humano (Outbound Humano)."""
         lead = await LeadRepository.create(
             db=db,
             telefone=telefone,
