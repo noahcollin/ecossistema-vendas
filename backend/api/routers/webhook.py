@@ -43,11 +43,6 @@ async def validar_webhook_secret(
 async def webhook_uazapi(payload: schemas.UazapiPayload) -> dict[str, Any]:
     """Recebe eventos da Uazapi em < 5ms e delega a triagem ao Application Service."""
     try:
-        # Quando SEND_API_KEY está ativa, a Uazapi opera apenas como notificador de saída para o Eduardo.
-        # Ignora webhooks de conversas recebidas no chip da Uazapi para que a IA nunca responda contatos daquele chip.
-        if settings.SEND_API_KEY and payload.instanceName != "send_inteligentte":
-            logger.info("[WEBHOOK UAZAPI] 🛡️ Evento recebido na Uazapi ignorado (operação ativa no Send Inteligentte; Uazapi dedicada a alertas do Supervisor).")
-            return {"status": "ignorado", "motivo": "uazapi_dedicada_apenas_notificacao_supervisor"}
         return await WebhookApplicationService.processar_evento_uazapi(payload)
     except Exception as e:
         logger.error(f"[WEBHOOK ERRO] ❌ Falha crítica ao processar requisição: {e}", exc_info=True)
