@@ -36,19 +36,16 @@ async def validar_admin_api_key(
     Dependência de segurança para endpoints administrativos e analíticos (FastAPI).
     
     Regras de autenticação:
-    1. Se settings.ADMIN_API_KEY não estiver configurada (vazia), permite acesso em modo
+    1. Se um Token JWT válido de operador Locaweb for fornecido (via Bearer), permite acesso imediato.
+    2. Se settings.ADMIN_API_KEY não estiver configurada (vazia), permite acesso em modo
        zero-friction (ideal para desenvolvimento local e suítes de teste).
-    2. Se settings.ADMIN_API_KEY estiver configurada, exige a chave correta via:
+    3. Se settings.ADMIN_API_KEY estiver configurada, valida via:
        - Header 'Authorization: Bearer <key>'
        - Header 'X-API-Key: <key>'
        - Header 'X-Admin-Api-Key: <key>'
-    3. Rejeita requisições não autenticadas ou com tokens inválidos com HTTP 401 Unauthorized.
+    4. Rejeita requisições não autenticadas ou com tokens inválidos com HTTP 401 Unauthorized.
     """
     token_esperado = (settings.ADMIN_API_KEY or "").strip()
-
-    # Modo Zero-Friction: desenvolvimento local ou ambientes sem chave configurada
-    if not token_esperado:
-        return "unprotected-dev-mode"
 
     # Extrai o token fornecido em qualquer um dos headers suportados
     token_fornecido: Optional[str] = None
@@ -59,21 +56,35 @@ async def validar_admin_api_key(
     elif x_admin_key:
         token_fornecido = x_admin_key.strip()
 
+    # Tentativa de autenticação via Token JWT de operador da Locaweb
+    if token_fornecido:
+        try:
+            from services.auth_locaweb_service import LocawebAuthService
+            payload = LocawebAuthService.decodificar_token_jwt(token_fornecido)
+            if payload and payload.get("sub"):
+                return f"operator:{payload['sub']}"
+        except Exception:
+            pass
+
+    # Modo Zero-Friction: desenvolvimento local ou ambientes sem chave configurada
+    if not token_esperado:
+        return "unprotected-dev-mode"
+
     # Caso nenhum token tenha sido fornecido
     if not token_fornecido:
-        logger.warning("[SEGURANÇA] 🛑 Acesso bloqueado: chave de autenticação ausente.")
+        logger.warning("[SEGURANÇA] 🛑 Acesso bloqueado: chave de autenticação ou token JWT ausente.")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Acesso não autorizado: Chave de API ou Token Bearer ausente.",
+            detail="Acesso não autorizado: Faça login com seu e-mail corporativo ou forneça a Chave de API.",
             headers={"WWW-Authenticate": "Bearer"}
         )
 
-    # Validação em tempo constante contra timing attacks
+    # Validação em tempo constante contra timing attacks da ADMIN_API_KEY
     if not const_time_compare(token_fornecido, token_esperado):
-        logger.warning("[SEGURANÇA] 🛑 Acesso bloqueado: chave de autenticação incorreta fornecida.")
+        logger.warning("[SEGURANÇA] 🛑 Acesso bloqueado: credencial inválida fornecida.")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Acesso não autorizado: Chave de API inválida.",
+            detail="Acesso não autorizado: Credencial inválida ou sessão expirada.",
             headers={"WWW-Authenticate": "Bearer"}
         )
 

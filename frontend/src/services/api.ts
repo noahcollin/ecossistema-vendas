@@ -14,7 +14,47 @@ import type {
 } from '../types/settings';
 
 const SESSION_KEY_STORAGE = 'ev_admin_api_key';
+const SESSION_USER_STORAGE = 'ev_auth_user_email';
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+
+export function getStoredUserEmail(): string {
+  try {
+    return (window.sessionStorage.getItem(SESSION_USER_STORAGE) || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+export function setStoredSession(token: string, email: string): void {
+  try {
+    setStoredApiKey(token);
+    if (email) {
+      window.sessionStorage.setItem(SESSION_USER_STORAGE, email.trim().toLowerCase());
+    }
+  } catch {
+    // Ignora
+  }
+}
+
+export async function loginLocaweb(email: string, senha: string): Promise<{ access_token: string; email: string }> {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ email, senha }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new ApiError(response.status, errorData.detail || 'Falha ao autenticar na Locaweb');
+  }
+
+  const data = await response.json();
+  setStoredSession(data.access_token, data.email);
+  return data;
+}
 
 export class ApiError extends Error {
   public readonly status: number;
@@ -50,6 +90,7 @@ export function setStoredApiKey(key: string): void {
 export function clearStoredApiKey(): void {
   try {
     window.sessionStorage.removeItem(SESSION_KEY_STORAGE);
+    window.sessionStorage.removeItem(SESSION_USER_STORAGE);
   } catch {
     // Ignora
   }

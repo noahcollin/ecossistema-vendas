@@ -8,6 +8,8 @@ interface HeaderProps {
   pendingHandoverCount: number;
   health: SystemHealthResponse | null;
   hasSessionKey: boolean;
+  userEmail?: string;
+  onLogout: () => void;
   onOpenAuthModal: () => void;
 }
 
@@ -17,6 +19,8 @@ export const Header: React.FC<HeaderProps> = ({
   pendingHandoverCount,
   health,
   hasSessionKey,
+  userEmail,
+  onLogout,
   onOpenAuthModal,
 }) => {
   const statusKind =
@@ -111,20 +115,39 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={onOpenAuthModal}
-            title="Configurar chave administrativa da sessão (X-API-Key)"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="8" cy="15" r="4" />
-              <path d="M10.85 12.15L19 4" />
-              <path d="M18 5L20 7" />
-              <path d="M15 8L17 10" />
-            </svg>
-            <span>{hasSessionKey ? 'Chave Ativa' : 'Chave API'}</span>
-          </button>
+          {userEmail && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)', fontFamily: 'var(--font-mono)' }}>
+                {userEmail}
+              </span>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={onLogout}
+                title="Encerrar sessão corporativa"
+                style={{ color: '#FF6B8B', borderColor: 'rgba(255, 30, 70, 0.3)' }}
+              >
+                Sair
+              </button>
+            </div>
+          )}
+
+          {!userEmail && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={onOpenAuthModal}
+              title="Configurar chave administrativa da sessão (X-API-Key)"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="8" cy="15" r="4" />
+                <path d="M10.85 12.15L19 4" />
+                <path d="M18 5L20 7" />
+                <path d="M15 8L17 10" />
+              </svg>
+              <span>{hasSessionKey ? 'Chave Ativa' : 'Chave API'}</span>
+            </button>
+          )}
         </div>
       </div>
     </header>

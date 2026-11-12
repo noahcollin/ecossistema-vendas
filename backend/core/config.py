@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     # Segurança de Entrada, Webhook e Administração
     WEBHOOK_SECRET_TOKEN: str = ""  # Se definido, exige X-Webhook-Secret ou ?token=
     ADMIN_API_KEY: str = ""         # Se definido, protege rotas /leads e /analytics via Bearer ou X-API-Key
+    JWT_SECRET_KEY: str = "inteligentte-super-secret-jwt-key-2026-prod"  # Segredo para assinatura de tokens de sessão
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRATION_HOURS: int = 72   # Sessão do operador dura 3 dias
+    LOCAWEB_IMAP_SERVER: str = "email-ssl.com.br"
+    LOCAWEB_IMAP_PORT: int = 993
+    ALLOWED_EMAIL_DOMAIN: str = "inteligentte.com.br"
     CORS_ORIGINS: str = "*"         # Origens permitidas separadas por vírgula (ex: 'https://painel.com,http://localhost:3000')
     
     # Ambiente de Execução e Logging do Sistema

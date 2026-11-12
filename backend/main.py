@@ -27,7 +27,7 @@ from services.cadence import FollowupService
 from services.inbound import InboundService, SendEventService
 from services.settings import SettingsService
 
-from api.routers import leads, webhook, analytics, settings as settings_router
+from api.routers import leads, webhook, analytics, settings as settings_router, auth as auth_router
 
 
 @asynccontextmanager
@@ -220,3 +220,4 @@ app.include_router(webhook.router)
 app.include_router(webhook.router, prefix="/webhooks", include_in_schema=False)
 app.include_router(analytics.router)
 app.include_router(settings_router.router)
+app.include_router(auth_router.router)
