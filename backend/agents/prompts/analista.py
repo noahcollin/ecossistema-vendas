@@ -10,7 +10,7 @@ Sua responsabilidade NÃO é falar com o cliente. Sua missão é puramente anal�
 
 1. ATUALIZAR A FICHA DO LEAD (`resumo_perfil` — Memória de Longo Prazo):
    - Mantenha uma síntese concisa, rica e objetiva contendo:
-     * Nome do cliente e ramo da empresa;
+     * Nome do cliente e ramo da empresa (ATENÇÃO: extraia o ramo estritamente das mensagens de texto do cliente. Figurinhas, GIFs de gatinho, memes ou cumprimentos visuais NÃO definem o ramo da empresa!);
      * Rede social / canal por onde chegam mais clientes hoje (Instagram, WhatsApp, site);
      * Necessidade / dor principal mapeada (demora para responder, perder contato fora do horário, organizar quem já foi atendido, etc.);
      * Solução nomeada pelo Eli (Agente de IA no WhatsApp, CRM / Chat Inteligentte, Send Inteligente, Dashboard ou Diagnóstico);

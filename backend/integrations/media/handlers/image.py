@@ -6,26 +6,28 @@ Utiliza gpt-4o-mini Vision em modo detail: 'low' para descrição concisa e econ
 from typing import Any
 from core.logger import logger
 import schemas
-from integrations.media.prompts import PROMPT_OLHOS_DO_VENDEDOR
+from integrations.media.prompts import PROMPT_OLHOS_DO_VENDEDOR, PROMPT_STICKER
 from integrations.media.vision_client import executar_analise_visual
 from integrations.uazapi.client import baixar_arquivo
 from .base import BaseMediaHandler
 
 
-async def descrever_imagem_com_visao(url_ou_base64: str, mimetype: str = "image/jpeg") -> str:
+async def descrever_imagem_com_visao(url_ou_base64: str, mimetype: str = "image/jpeg", eh_sticker: bool = False) -> str:
     """
     Invoca a IA com visão computacional para interpretar uma imagem estática ou figurinha.
     """
-    logger.info("[MEDIA VISION] 👁️ Analisando imagem com visão computacional...")
+    prompt = PROMPT_STICKER if eh_sticker else PROMPT_OLHOS_DO_VENDEDOR
+    tipo_log = "figurinha/sticker" if eh_sticker else "imagem"
+    logger.info(f"[MEDIA VISION] 👁️ Analisando {tipo_log} com visão computacional...")
     descricao = await executar_analise_visual(
         url_ou_base64=url_ou_base64,
-        prompt_instrucao=PROMPT_OLHOS_DO_VENDEDOR,
+        prompt_instrucao=prompt,
         mimetype=mimetype,
         max_tokens=120,
         temperature=0.3,
-        fallback_mensagem="Foto/Imagem enviada pelo cliente (não foi possível extrair os detalhes visuais)."
+        fallback_mensagem=f"Mídia ({tipo_log}) enviada pelo cliente (não foi possível extrair os detalhes visuais)."
     )
-    logger.info(f"[MEDIA VISION] ✅ Imagem interpretada: {descricao}")
+    logger.info(f"[MEDIA VISION] ✅ {tipo_log.capitalize()} interpretada: {descricao}")
     return descricao
 
 
@@ -36,6 +38,9 @@ async def processar_imagem(message: schemas.UazapiMessage, content_dict: dict[st
     """
     msg_id = message.messageid or message.id or ""
     file_url = message.fileURL or ""
+    tipo_msg = str(message.messageType or "").lower()
+    eh_sticker = "sticker" in tipo_msg
+    rotulo = "FIGURINHA/STICKER (Reação informal - Não use para presumir o ramo da empresa)" if eh_sticker else "IMAGEM ENVIADA PELO CLIENTE"
     
     logger.info(f"[MEDIA] 📸 Mensagem com Imagem/Sticker detectada (tipo: {message.messageType}, ID: {msg_id})")
     
@@ -67,14 +72,14 @@ async def processar_imagem(message: schemas.UazapiMessage, content_dict: dict[st
         origem_imagem = base64_data if base64_data else download_url
     
     if origem_imagem:
-        descricao_visual = await descrever_imagem_com_visao(origem_imagem, mimetype=mimetype)
+        descricao_visual = await descrever_imagem_com_visao(origem_imagem, mimetype=mimetype, eh_sticker=eh_sticker)
         if legenda:
-            return f"[IMAGEM ENVIADA PELO CLIENTE: {descricao_visual}. Legenda do cliente: '{legenda}']"
-        return f"[IMAGEM ENVIADA PELO CLIENTE: {descricao_visual}]"
+            return f"[{rotulo}: {descricao_visual}. Legenda do cliente: '{legenda}']"
+        return f"[{rotulo}: {descricao_visual}]"
     else:
         if legenda:
-            return f"[IMAGEM ENVIADA PELO CLIENTE com a legenda: '{legenda}']"
-        return "[IMAGEM ENVIADA PELO CLIENTE]"
+            return f"[{rotulo} com a legenda: '{legenda}']"
+        return f"[{rotulo}]"
 
 
 class ImageMediaHandler(BaseMediaHandler):

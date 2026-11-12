@@ -8,6 +8,14 @@ Regras:
 1. Seja direto e objetivo (1 a 2 frases no máximo).
 """
 
+PROMPT_STICKER = """Você é o assistente de visão computacional de um ecossistema comercial no WhatsApp.
+Sua missão é interpretar esta FIGURINHA / STICKER enviada pelo cliente.
+Regras:
+1. Identifique o que a figurinha representa e a intenção/reação emocional do cliente (ex: simpatia, cumprimento fofo, humor, risada, dúvida, ironia).
+2. Seja direto e conciso (1 frase curta).
+3. Lembre-se: é apenas uma figurinha de cumprimento/humor do WhatsApp, não reflete necessariamente a atividade profissional do cliente.
+"""
+
 PROMPT_GIF = """Você é o assistente de visão computacional de um ecossistema comercial no WhatsApp.
 Sua missão é interpretar este GIF / animação / meme enviado pelo cliente.
 Regras:
