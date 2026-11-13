@@ -3,6 +3,7 @@ from typing import List, Optional
 from core.openai_client import openai_client, is_openai_quota_error
 from core.logger import logger
 from core.config import settings
+from core.temporal import TemporalContextProvider
 import models
 import schemas
 from .prompts import PROMPT_SISTEMA_ANALISTA
@@ -38,7 +39,9 @@ async def analisar_lead_e_fsm(
                 remetente = "Nota de Sistema"
             else:
                 remetente = "Vendedor (IA)"
-            mensagens_formatadas.append(f"{remetente}: {interacao.texto}")
+            ts = TemporalContextProvider.formatar_timestamp_local(getattr(interacao, "criado_em", None))
+            prefixo_ts = f"[{ts}] " if ts else ""
+            mensagens_formatadas.append(f"{prefixo_ts}{remetente}: {interacao.texto}")
 
         # Se nova_mensagem foi informada e ainda não está no histórico salvo
         if nova_mensagem and nova_mensagem.strip():
@@ -48,8 +51,11 @@ async def analisar_lead_e_fsm(
                 mensagens_formatadas.append(f"Cliente: {msg_limpa}")
 
         contexto_dialogo = "\n".join(mensagens_formatadas) if mensagens_formatadas else f"Cliente: {(nova_mensagem or '').strip() or 'Iniciou conversa'}"
+        bloco_data_hora = TemporalContextProvider.gerar_bloco_referencia_temporal()
 
         prompt_usuario = f"""
+{bloco_data_hora}
+
 [ESTADO ATUAL NO BANCO DE DADOS]
 Nome Registrado: {lead.nome or 'Desconhecido'}
 Telefone: {lead.telefone}

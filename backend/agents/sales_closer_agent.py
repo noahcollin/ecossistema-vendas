@@ -1,9 +1,8 @@
-from datetime import datetime
 from typing import List, Optional
-from zoneinfo import ZoneInfo
 from core.logger import logger
 from core.openai_client import openai_client, is_openai_quota_error
 from core.config import settings
+from core.temporal import TemporalContextProvider
 from core.utils import higienizar_nome_perfil
 import models
 from .prompts import (
@@ -38,20 +37,23 @@ def formatar_dialogo_para_chat(
     mensagens_janela = historico_recente[-janela_tamanho:] if len(historico_recente) > janela_tamanho else historico_recente
     chat_msgs = []
     for interacao in mensagens_janela:
+        ts = TemporalContextProvider.formatar_timestamp_local(getattr(interacao, "criado_em", None))
+        prefixo_ts = f"[{ts}] " if ts else ""
+
         if interacao.origem == models.InteracaoOrigem.CLIENTE:
-            chat_msgs.append({"role": "user", "content": interacao.texto})
+            chat_msgs.append({"role": "user", "content": f"{prefixo_ts}{interacao.texto}"})
         elif interacao.origem == models.InteracaoOrigem.HUMANO:
             chat_msgs.append({
                 "role": "assistant",
-                "content": f"[Mensagem do Consultor da nossa equipe]: {interacao.texto}"
+                "content": f"{prefixo_ts}[Mensagem do Consultor da nossa equipe]: {interacao.texto}"
             })
         elif interacao.origem == models.InteracaoOrigem.SISTEMA:
             chat_msgs.append({
                 "role": "system",
-                "content": f"[Diretriz Interna de Atendimento]: {interacao.texto}"
+                "content": f"{prefixo_ts}[Diretriz Interna de Atendimento]: {interacao.texto}"
             })
         else:
-            chat_msgs.append({"role": "assistant", "content": interacao.texto})
+            chat_msgs.append({"role": "assistant", "content": f"{prefixo_ts}{interacao.texto}"})
     return chat_msgs
 
 
@@ -85,10 +87,7 @@ async def gerar_resposta_vendedor(
         catalogo_dinamico, _ = _obter_contexto_settings_dinamico()
         bloco_catalogo = f"\n[{catalogo_dinamico}]\n" if catalogo_dinamico else ""
 
-        dias_pt = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
-        agora_br = datetime.now(ZoneInfo("America/Sao_Paulo"))
-        dia_semana_str = dias_pt[agora_br.weekday()]
-        bloco_data_hora = f"\n[REFERÊNCIA TEMPORAL ATUAL (Horário de Brasília)]: Hoje é {dia_semana_str}, {agora_br.strftime('%d/%m/%Y às %H:%M')}."
+        bloco_data_hora = TemporalContextProvider.gerar_bloco_referencia_temporal()
 
         bloco_contexto = f"""
 {PROMPT_BASE_VENDEDOR}
@@ -170,10 +169,12 @@ async def gerar_mensagem_followup(
 
         ficha_formatada = ficha_resumo.strip() if ficha_resumo else "Em processo de qualificação."
         bloco_catalogo = f"\n[{catalogo_dinamico}]\n" if catalogo_dinamico else ""
+        bloco_data_hora = TemporalContextProvider.gerar_bloco_referencia_temporal()
 
         bloco_contexto = f"""
 {PROMPT_BASE_VENDEDOR}
 {instrucao_nome}
+{bloco_data_hora}
 {bloco_catalogo}
 [FICHA ATUALIZADA DO CLIENTE - MEMÓRIA DE LONGO PRAZO]
 {ficha_formatada}

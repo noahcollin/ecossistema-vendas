@@ -3,6 +3,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
+    TZ=America/Sao_Paulo \
     HOME=/tmp \
     UV_CACHE_DIR=/tmp/.uv-cache \
     PATH="/app/.venv/bin:$PATH"
