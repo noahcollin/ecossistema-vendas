@@ -5,6 +5,7 @@ import { getControleLabel, getEtapaLabel } from '../../utils/formatters';
 
 interface TransbordoModalProps {
   isOpen: boolean;
+  mode?: 'assume' | 'return';
   lead: Lead | null;
   isBusy: boolean;
   onClose: () => void;
@@ -14,6 +15,7 @@ interface TransbordoModalProps {
 
 export const TransbordoModal: React.FC<TransbordoModalProps> = ({
   isOpen,
+  mode,
   lead,
   isBusy,
   onClose,
@@ -27,12 +29,12 @@ export const TransbordoModal: React.FC<TransbordoModalProps> = ({
 
   if (!isOpen || !lead) return null;
 
-  const isCurrentlyHuman = lead.controle === 'HUMANO_ASSUMIU';
+  const isReturnMode = mode ? mode === 'return' : lead.controle === 'HUMANO_ASSUMIU';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      if (isCurrentlyHuman) {
+      if (isReturnMode) {
         const parsedVal = valorOverride.trim() ? Number.parseFloat(valorOverride) : undefined;
         await onReturnToAi({
           diretriz_ia: diretrizIa.trim() || undefined,
@@ -58,11 +60,11 @@ export const TransbordoModal: React.FC<TransbordoModalProps> = ({
         <div className="prestige-beam" />
         <div className="panel-header">
           <div>
-            <div className={`eyebrow ${isCurrentlyHuman ? 'eyebrow-ai' : 'eyebrow-closer'}`}>
+            <div className={`eyebrow ${isReturnMode ? 'eyebrow-ai' : 'eyebrow-closer'}`}>
               GOVERNANÇA DE HANDOVER · ESTADO ATUAL: {getControleLabel(lead.controle).toUpperCase()}
             </div>
             <h2 className="section-title" style={{ marginTop: '4px' }}>
-              {isCurrentlyHuman
+              {isReturnMode
                 ? 'Devolver Condução ao Piloto Automático de IA'
                 : 'Assumir Condução Humana Direta (Closer)'}
             </h2>
@@ -73,7 +75,7 @@ export const TransbordoModal: React.FC<TransbordoModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {isCurrentlyHuman ? (
+          {isReturnMode ? (
             <>
               <p style={{ color: 'var(--text-secondary)', fontSize: '13.5px' }}>
                 A IA (&ldquo;Seu Zé&rdquo;) retomará o atendimento de{' '}
@@ -155,12 +157,12 @@ export const TransbordoModal: React.FC<TransbordoModalProps> = ({
             </button>
             <button
               type="submit"
-              className={`btn ${isCurrentlyHuman ? 'btn-ai' : 'btn-closer'}`}
+              className={`btn ${isReturnMode ? 'btn-ai' : 'btn-closer'}`}
               disabled={isBusy}
             >
               {isBusy
                 ? 'Sincronizando...'
-                : isCurrentlyHuman
+                : isReturnMode
                   ? 'Reativar Piloto IA'
                   : 'Assumir Atendimento Humano'}
             </button>

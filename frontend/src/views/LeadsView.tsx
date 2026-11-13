@@ -40,7 +40,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
     removeActiveLead,
   } = useLeadsWorkspace(selectedLeadId, onSelectLeadId);
 
-  const [isHandoverOpen, setIsHandoverOpen] = useState(false);
+  const [handoverMode, setHandoverMode] = useState<'assume' | 'return' | null>(null);
   const [briefingMode, setBriefingMode] = useState<'single' | 'batch' | null>(null);
   const [confirmAction, setConfirmAction] = useState<'reset' | 'delete' | null>(null);
 
@@ -80,7 +80,7 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
           isLoadingThread={isLoadingThread}
           isMutating={isMutating}
           onRunAudit={runLeadAudit}
-          onOpenHandoverModal={() => setIsHandoverOpen(true)}
+          onOpenHandoverModal={(mode) => setHandoverMode(mode)}
           onRequestManualHandover={() => requestManualHandover()}
           onOpenSingleBriefing={() => setBriefingMode('single')}
           onSendHumanMessage={(texto) => sendHumanWhatsAppMessage(texto)}
@@ -90,10 +90,11 @@ export const LeadsView: React.FC<LeadsViewProps> = ({
       </div>
 
       <TransbordoModal
-        isOpen={isHandoverOpen}
+        isOpen={handoverMode !== null}
+        mode={handoverMode ?? undefined}
         lead={activeLead}
         isBusy={isMutating}
-        onClose={() => setIsHandoverOpen(false)}
+        onClose={() => setHandoverMode(null)}
         onAssumeHuman={assumeHumanControl}
         onReturnToAi={returnToAiPilot}
       />

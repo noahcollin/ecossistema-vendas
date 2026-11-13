@@ -21,7 +21,7 @@ interface LeadDossierProps {
   isLoadingThread: boolean;
   isMutating: boolean;
   onRunAudit: () => Promise<void>;
-  onOpenHandoverModal: () => void;
+  onOpenHandoverModal: (mode: 'assume' | 'return') => void;
   onRequestManualHandover: () => Promise<void>;
   onOpenSingleBriefing: () => void;
   onSendHumanMessage: (texto: string) => Promise<void>;
@@ -131,17 +131,25 @@ export const LeadDossier: React.FC<LeadDossierProps> = ({
             </button>
           )}
 
+          {lead.controle !== 'HUMANO_ASSUMIU' && (
+            <button
+              type="button"
+              className="btn btn-sm btn-closer"
+              onClick={() => onOpenHandoverModal('assume')}
+              disabled={isMutating}
+            >
+              Assumir Atendimento
+            </button>
+          )}
+
           <button
             type="button"
-            className={`btn btn-sm ${
-              lead.controle === 'HUMANO_ASSUMIU' ? 'btn-ai' : 'btn-closer'
-            }`}
-            onClick={onOpenHandoverModal}
+            className="btn btn-sm btn-ai"
+            onClick={() => onOpenHandoverModal('return')}
             disabled={isMutating}
+            title="Devolver condução para o Piloto Automático de IA (ou enviar diretriz tática / atualizar etapa)"
           >
-            {lead.controle === 'HUMANO_ASSUMIU'
-              ? 'Devolver para IA'
-              : 'Assumir Atendimento'}
+            Devolver para IA
           </button>
 
           <button type="button" className="btn btn-sm" onClick={onOpenSingleBriefing}>
