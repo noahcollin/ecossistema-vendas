@@ -59,7 +59,8 @@ def test_orientacoes_estagio_e_followup_completos():
 
     assert set(ORIENTACOES_FOLLOWUP.keys()) == {1, 2, 3}
     assert "1 balão" in ORIENTACOES_FOLLOWUP[1]
-    assert "35 palavras" in PROMPT_BASE_VENDEDOR
+    assert "RITMO ADAPTATIVO" in PROMPT_BASE_VENDEDOR
+    assert "Consultor" in PROMPT_BASE_VENDEDOR or "consultor" in PROMPT_BASE_VENDEDOR
     assert "Hoje 16h ou amanhã 10h?" in PROMPT_SISTEMA_ANALISTA
     assert "35 palavras" in PROMPT_SISTEMA_AUDITOR
 
