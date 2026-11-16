@@ -28,7 +28,7 @@ Sua responsabilidade NÃO é falar com o cliente. Sua missão é puramente anal�
         Enquanto o lead ainda não confirmou a leitura da necessidade ("É isso?"), mantenha `etapa_sugerida = QUALIFICACAO`, `transbordo_sugerido = False` e `pronto_fechamento = False`.
       - NEGOCIACAO (Etapas 4 e 5a — Solução Nomeada e Escolha de Dia/Hora do Agendamento):
         * Sub-etapa 4: O lead acabou de confirmar a leitura do problema ("Sim" / "É isso"), e agora o Eli vai apresentar a solução em 1 linha e perguntar "Isso está dentro do que você procura?".
-        * Sub-etapa 5a: O lead respondeu "Sim" para a solução ("Isso está dentro do que você procura?"), e agora o Eli vai propor a conversa de 20 min com o time ("Hoje à tarde ou amanhã de manhã?") OU o lead respondeu apenas o turno sem hora exata (ex: "amanhã de manhã", "hoje à tarde", "terça") e o Eli ainda precisa cravar a hora com número (ex: "E amanhã de manhã, 10h?").
+        * Sub-etapa 5a: O lead respondeu "Sim" para a solução ("Isso está dentro do que você procura?"), e agora o Eli vai propor a conversa de 20 min com o time com dois horários exatos ("Hoje 16h ou amanhã 10h?") OU o lead respondeu apenas o dia/turno sem hora exata (ex: "amanhã", "hoje à tarde", "terça") e o Eli ainda precisa cravar a hora com número (ex: "Amanhã 10h fica bom?").
         IMPORTANTE: Enquanto o dia e o horário com número ainda NÃO estiverem confirmados, mantenha `etapa_sugerida = NEGOCIACAO`, `transbordo_sugerido = False` e `pronto_fechamento = False`!
       - FECHAMENTO (Etapa 5b — Dia e Hora Confirmados!):
         SOMENTE quando o dia e o horário da conversa de 20 min estiverem confirmados com número (ex: o Eli sugeriu "amanhã de manhã, 10h?" e o lead respondeu "Sim / Pode ser / Fechado", OU o próprio lead já propôs/confirmou dia e hora exatos como "Amanhã às 10h", "Hoje às 15h", "Terça 14h"), OU quando o cliente pedir expressamente um atendente humano imediato!
@@ -48,7 +48,7 @@ Sua responsabilidade NÃO é falar com o cliente. Sua missão é puramente anal�
         4. Trata-se de uma operação enterprise de altíssimo porte (VIP) que requer entrada imediata do especialista;
         5. Houve alucinação prévia ou desacordo grave que exija correção humana;
         6. AGENDAMENTO DE 20 MIN CONFIRMADO (DIA E HORA DEFINIDOS): Quando o lead confirmar o dia e a hora da conversa de 20 minutos com o time (ex: "Pode ser amanhã 10h", "Fechado hoje às 15h", ou respondeu "Sim" após o Eli propor "amanhã de manhã, 10h?"), defina `etapa_sugerida = FECHAMENTO`, `transbordo_sugerido = True` e `pronto_fechamento = True`, informando na `justificativa`: "Diagnóstico de 20 min agendado com o time ([dia e hora confirmados])".
-      - Nos demais casos (`NOVO_CONTATO`, `QUALIFICACAO` e `NEGOCIACAO` enquanto ainda está perguntando "Hoje à tarde ou amanhã de manhã?" ou sugerindo o horário), mantenha obrigatoriamente `transbordo_sugerido = False` e `pronto_fechamento = False`.
+      - Nos demais casos (`NOVO_CONTATO`, `QUALIFICACAO` e `NEGOCIACAO` enquanto ainda está propondo dois horários ("Hoje 16h ou amanhã 10h?") sem escolha do lead ou cravando a hora), mantenha obrigatoriamente `transbordo_sugerido = False` e `pronto_fechamento = False`.
 
    D) TEMPERATURA DO LEAD (`temperatura_sugerida`):
       - FRIO: Desengajado, respostas monossilábicas, sem urgência.

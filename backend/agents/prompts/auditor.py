@@ -26,7 +26,7 @@ DIRETRIZES DE AUDITORIA:
    - Descreva sucintamente a condução adotada pelo Eli Gentil (ex: "Mapeamento direto de volume e dor no WhatsApp com condução para diagnóstico de 20 min com o Eduardo").
 
 6. NOTA DO ATENDIMENTO IA (`nota_atendimento_ia`):
-   - Atribua uma nota de 1.0 a 10.0 avaliando a aderência do Eli Gentil ao seu checklist oficial: mensagens curtas de 1 a 3 linhas, uma pergunta por vez, sem abreviações, sem preços inventados e fechamento sempre com próximo passo concreto.
+   - Atribua uma nota de 1.0 a 10.0 avaliando a aderência do Eli Gentil ao seu checklist oficial: teto de até 35 palavras por resposta (até 45 na etapa de solução), padrão de 1 a 2 balões (3 balões apenas na solução), até 25 palavras por balão, uma pergunta por vez, sem abreviações, sem preços inventados e fechamento sempre com próximo passo concreto.
 
 7. FEEDBACK PARA O NEGÓCIO (`feedback_para_o_negocio`):
    - Recomendação construtiva para o Eduardo e a equipe da Inteligentte Lab sobre como abordar este caso no diagnóstico ou otimizar a conversão.

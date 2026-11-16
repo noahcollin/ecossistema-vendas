@@ -39,6 +39,7 @@ class TemporalContextProvider:
     DEFAULT_TZ = "America/Sao_Paulo"
     DEFAULT_DIAS_ATIVOS = [0, 1, 2, 3, 4]  # Segunda a Sexta
     SLOTS_PADRAO_HORA = [10, 15, 16]
+    SLOTS_LIVRES_HORA = [9, 10, 11, 14, 15, 16, 17]
     ANTECEDENCIA_MINIMA_HOJE_HORAS = 2
 
     @classmethod
@@ -195,3 +196,75 @@ class TemporalContextProvider:
             f"- Próximos dias úteis de atendimento: {dias_uteis_str}.\n"
             f"- Próximos dois horários válidos pré-calculados para agendamento (priorize estes): {horarios_str}."
         )
+
+    @classmethod
+    def formatar_data_hora_atual_prompt(cls, referencia_utc: Optional[datetime] = None) -> str:
+        """Formata a data e hora atual no padrão do Eli v3: 'quarta-feira, 12/11/2026, 14h05 (horário de Brasília)'."""
+        agora = cls.agora_local(referencia_utc=referencia_utc)
+        dia_hoje = DIAS_SEMANA_COMPLETO[agora.weekday()]
+        return f"{dia_hoje}, {agora.strftime('%d/%m/%Y')}, {agora.strftime('%Hh%M')} (horário de Brasília)"
+
+    @classmethod
+    def gerar_horarios_livres_prompt(
+        cls,
+        agora: Optional[datetime] = None,
+        max_dias: int = 3,
+        dias_ativos: Optional[list[int]] = None,
+    ) -> str:
+        """
+        Gera a string de horários livres para injeção em `{horarios_livres}` do Eli v3
+        (ex: 'hoje (quarta) 16h; amanhã (quinta) 10h, 11h, 15h; sexta 9h, 14h') ou 'nenhum'.
+        Respeita dias úteis (padrão Seg-Sex), janela comercial (8h-17h30) e antecedência mínima de 2h hoje.
+        """
+        fuso_cfg, dias_cfg, inicio_cfg, fim_cfg = cls._obter_config_horario()
+        agora_loc = agora if agora is not None else cls.agora_local(fuso=fuso_cfg)
+        dias_permitidos = set(dias_ativos if dias_ativos is not None else dias_cfg)
+        if not dias_permitidos:
+            dias_permitidos = set(cls.DEFAULT_DIAS_ATIVOS)
+
+        hora_min = max(8, inicio_cfg)
+        hora_max = min(17, fim_cfg - 1) if fim_cfg > 8 else 17
+        slots_dia = [h for h in cls.SLOTS_LIVRES_HORA if hora_min <= h <= hora_max]
+        if not slots_dia:
+            slots_dia = [10, 15]
+
+        limite_hoje = agora_loc + timedelta(hours=cls.ANTECEDENCIA_MINIMA_HOJE_HORAS)
+        grupos: list[str] = []
+
+        for offset_dias in range(0, 10):
+            data_alvo = (agora_loc + timedelta(days=offset_dias)).date()
+            wd = data_alvo.weekday()
+            if wd not in dias_permitidos:
+                continue
+
+            horas_validas: list[str] = []
+            for hora in slots_dia:
+                candidato = agora_loc.replace(
+                    year=data_alvo.year,
+                    month=data_alvo.month,
+                    day=data_alvo.day,
+                    hour=hora,
+                    minute=0,
+                    second=0,
+                    microsecond=0,
+                )
+                if offset_dias == 0 and candidato < limite_hoje:
+                    continue
+                horas_validas.append(f"{hora}h")
+
+            if not horas_validas:
+                continue
+
+            dia_curto = DIAS_SEMANA_CURTO[wd]
+            if offset_dias == 0:
+                rotulo = f"hoje ({dia_curto})"
+            elif offset_dias == 1:
+                rotulo = f"amanhã ({dia_curto})"
+            else:
+                rotulo = dia_curto
+
+            grupos.append(f"{rotulo} {', '.join(horas_validas)}")
+            if len(grupos) >= max_dias:
+                break
+
+        return "; ".join(grupos) if grupos else "nenhum"

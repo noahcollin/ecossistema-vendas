@@ -339,7 +339,9 @@ class InboundService:
             ficha_resumo=ficha_resumo,
             etapa_funil=lead.etapa_funil,
             historico_recente=historico_recente,
-            diretriz_proatividade=pacing_eval.diretriz_proatividade
+            diretriz_proatividade=pacing_eval.diretriz_proatividade,
+            origem_canal=lead.origem_canal,
+            dados_qualificacao=lead.dados_qualificacao if isinstance(lead.dados_qualificacao, dict) else None,
         )
 
         if not resposta_ia or not resposta_ia.strip():

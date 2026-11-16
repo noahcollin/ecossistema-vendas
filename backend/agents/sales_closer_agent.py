@@ -23,6 +23,49 @@ def _obter_contexto_settings_dinamico() -> tuple[str, int]:
         return "", 3
 
 
+_MAPA_ORIGEM_LEAD = {
+    "META_ADS": "anúncio Meta Ads (clique para WhatsApp)",
+    "GOOGLE_SEARCH": "pesquisa Google",
+    "SITE_LANDING_PAGE": "site / landing page",
+    "INDICACAO": "indicação",
+    "WHATSAPP_DIRETO": "contato direto no WhatsApp",
+}
+
+
+def _formatar_origem_lead(origem_canal: Optional[str]) -> str:
+    """Converte o código de origem_canal em descrição legível para o prompt do Eli v3."""
+    if not origem_canal:
+        return "contato direto no WhatsApp"
+    chave = str(origem_canal).strip().upper()
+    return _MAPA_ORIGEM_LEAD.get(chave, str(origem_canal).strip())
+
+
+def _montar_prompt_base_vendedor(
+    origem_canal: Optional[str] = None,
+    horarios_livres: Optional[str] = None,
+) -> str:
+    """Injeta as variáveis dinâmicas ({data_hora_atual}, {origem_lead}, {horarios_livres}) no PROMPT_BASE_VENDEDOR."""
+    data_hora_atual = TemporalContextProvider.formatar_data_hora_atual_prompt()
+    origem_lead = _formatar_origem_lead(origem_canal)
+    livres = horarios_livres if horarios_livres is not None else TemporalContextProvider.gerar_horarios_livres_prompt()
+    return (
+        PROMPT_BASE_VENDEDOR
+        .replace("{data_hora_atual}", data_hora_atual)
+        .replace("{origem_lead}", origem_lead)
+        .replace("{horarios_livres}", livres)
+    )
+
+
+def _formatar_dados_ja_sabemos(dados_qualificacao: Optional[dict]) -> str:
+    """Formata o resumo explícito do que o Analista já extraiu para evitar perguntas repetidas."""
+    if not dados_qualificacao or not isinstance(dados_qualificacao, dict):
+        return ""
+    ramo = dados_qualificacao.get("ramo_atividade") or dados_qualificacao.get("segmento") or "ainda não"
+    canal = dados_qualificacao.get("canal_principal") or dados_qualificacao.get("rede_social") or "ainda não"
+    dor = dados_qualificacao.get("dor_principal") or dados_qualificacao.get("necessidade") or "ainda não"
+    return f"\nJá sabemos (extraído pelo Analista — não pergunte de novo se já preenchido): ramo = {ramo}, canal = {canal}, dor = {dor}.\n"
+
+
 def formatar_dialogo_para_chat(
     historico_recente: Optional[List[models.Interacao]],
     janela_tamanho: int = 6
@@ -63,6 +106,9 @@ async def gerar_resposta_vendedor(
     etapa_funil: Optional[models.EtapaFunil] = None,
     historico_recente: Optional[List[models.Interacao]] = None,
     diretriz_proatividade: Optional[str] = None,
+    origem_canal: Optional[str] = None,
+    horarios_livres: Optional[str] = None,
+    dados_qualificacao: Optional[dict] = None,
     **kwargs
 ) -> Optional[str]:
     """
@@ -83,20 +129,23 @@ async def gerar_resposta_vendedor(
         orientacao_estagio = ORIENTACOES_POR_ESTAGIO.get(etapa_atual, "Conduza a conversa de forma consultiva e empática.")
         ficha_formatada = ficha_resumo.strip() if ficha_resumo else "Primeiro contato, ainda sem dados acumulados."
         bloco_proatividade = f"\n{diretriz_proatividade}\n" if diretriz_proatividade else ""
+        bloco_ja_sabemos = _formatar_dados_ja_sabemos(dados_qualificacao)
 
         catalogo_dinamico, _ = _obter_contexto_settings_dinamico()
         bloco_catalogo = f"\n[{catalogo_dinamico}]\n" if catalogo_dinamico else ""
 
-        bloco_data_hora = TemporalContextProvider.gerar_bloco_referencia_temporal()
+        prompt_base_injetado = _montar_prompt_base_vendedor(
+            origem_canal=origem_canal,
+            horarios_livres=horarios_livres,
+        )
 
         bloco_contexto = f"""
-{PROMPT_BASE_VENDEDOR}
+{prompt_base_injetado}
 {instrucao_nome}
-{bloco_data_hora}
 {bloco_catalogo}
 [FICHA ATUALIZADA DO CLIENTE - MEMÓRIA DE LONGO PRAZO]
 {ficha_formatada}
-
+{bloco_ja_sabemos}
 [ESTÁGIO ATUAL DA NEGOCIAÇÃO NO FUNIL]
 Etapa: {etapa_atual.value}
 Objetivo Desta Etapa: {orientacao_estagio}
@@ -145,7 +194,9 @@ async def gerar_mensagem_followup(
     ficha_resumo: Optional[str],
     etapa_funil: Optional[models.EtapaFunil],
     tentativa: int,
-    historico_recente: Optional[List[models.Interacao]] = None
+    historico_recente: Optional[List[models.Interacao]] = None,
+    origem_canal: Optional[str] = None,
+    horarios_livres: Optional[str] = None,
 ) -> Optional[str]:
     """
     Gera mensagem de resgate/follow-up direta e sem pedidos de desculpa do Assistente ('Eli Gentil')
@@ -169,12 +220,14 @@ async def gerar_mensagem_followup(
 
         ficha_formatada = ficha_resumo.strip() if ficha_resumo else "Em processo de qualificação."
         bloco_catalogo = f"\n[{catalogo_dinamico}]\n" if catalogo_dinamico else ""
-        bloco_data_hora = TemporalContextProvider.gerar_bloco_referencia_temporal()
+        prompt_base_injetado = _montar_prompt_base_vendedor(
+            origem_canal=origem_canal,
+            horarios_livres=horarios_livres,
+        )
 
         bloco_contexto = f"""
-{PROMPT_BASE_VENDEDOR}
+{prompt_base_injetado}
 {instrucao_nome}
-{bloco_data_hora}
 {bloco_catalogo}
 [FICHA ATUALIZADA DO CLIENTE - MEMÓRIA DE LONGO PRAZO]
 {ficha_formatada}

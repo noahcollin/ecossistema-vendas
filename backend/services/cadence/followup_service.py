@@ -159,7 +159,8 @@ class FollowupService:
                 ficha_resumo=lead.resumo_perfil,
                 etapa_funil=f_item.etapa_funil,
                 tentativa=f_item.tentativa,
-                historico_recente=historico
+                historico_recente=historico,
+                origem_canal=lead.origem_canal,
             )
 
             if not texto_msg or not texto_msg.strip():
