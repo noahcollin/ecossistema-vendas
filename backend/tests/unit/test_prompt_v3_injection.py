@@ -14,6 +14,7 @@ from agents.prompts import (
     PROMPT_SISTEMA_ANALISTA,
     PROMPT_SISTEMA_AUDITOR,
 )
+from integrations.media.prompts import PROMPT_STICKER
 from agents.sales_closer_agent import (
     _formatar_origem_lead,
     _montar_prompt_base_vendedor,
@@ -63,6 +64,8 @@ def test_orientacoes_estagio_e_followup_completos():
     assert "Consultor" in PROMPT_BASE_VENDEDOR or "consultor" in PROMPT_BASE_VENDEDOR
     assert "Hoje 16h ou amanhã 10h?" in PROMPT_SISTEMA_ANALISTA
     assert "35 palavras" in PROMPT_SISTEMA_AUDITOR
+    assert "NUNCA mencione, elogie ou comente" in PROMPT_BASE_VENDEDOR
+    assert "FUNÇÃO COMUNICATIVA" in PROMPT_STICKER
 
 
 def test_formatar_dados_ja_sabemos():
