@@ -1,3 +1,4 @@
+import re
 from typing import List, Optional
 from core.logger import logger
 from core.openai_client import openai_client, is_openai_quota_error
@@ -66,13 +67,25 @@ def _formatar_dados_ja_sabemos(dados_qualificacao: Optional[dict]) -> str:
     return f"\nJá sabemos (extraído pelo Analista — não pergunte de novo se já preenchido): ramo = {ramo}, canal = {canal}, dor = {dor}.\n"
 
 
+_RE_PREFIXO_TS = re.compile(r"^\[\d{2}/\d{2}\s+\d{2}:\d{2}\]\s*")
+
+
+def _limpar_prefixo_timestamp(texto: str) -> str:
+    """Remove eventual prefixo de timestamp '[dd/mm HH:MM] ' copiado pelo modelo ou salvo no histórico."""
+    if not texto:
+        return ""
+    baloes = [_RE_PREFIXO_TS.sub("", b.strip()) for b in texto.split("|||")]
+    return "|||".join(b for b in baloes if b)
+
+
 def formatar_dialogo_para_chat(
     historico_recente: Optional[List[models.Interacao]],
     janela_tamanho: int = 6
 ) -> List[dict[str, str]]:
     """
     Formata o histórico recente em mensagens para o chat completion da OpenAI,
-    distinguindo mensagens do cliente, do consultor humano e notas de sistema.
+    distinguindo mensagens do cliente, do consultor humano e notas de sistema,
+    sem prefixar timestamps nas falas para evitar que o modelo copie '[dd/mm HH:MM]' na resposta.
     """
     if not historico_recente:
         return []
@@ -80,23 +93,21 @@ def formatar_dialogo_para_chat(
     mensagens_janela = historico_recente[-janela_tamanho:] if len(historico_recente) > janela_tamanho else historico_recente
     chat_msgs = []
     for interacao in mensagens_janela:
-        ts = TemporalContextProvider.formatar_timestamp_local(getattr(interacao, "criado_em", None))
-        prefixo_ts = f"[{ts}] " if ts else ""
-
+        texto_limpo = _limpar_prefixo_timestamp(interacao.texto or "")
         if interacao.origem == models.InteracaoOrigem.CLIENTE:
-            chat_msgs.append({"role": "user", "content": f"{prefixo_ts}{interacao.texto}"})
+            chat_msgs.append({"role": "user", "content": texto_limpo})
         elif interacao.origem == models.InteracaoOrigem.HUMANO:
             chat_msgs.append({
                 "role": "assistant",
-                "content": f"{prefixo_ts}[Mensagem do Consultor da nossa equipe]: {interacao.texto}"
+                "content": f"[Mensagem do Consultor da nossa equipe]: {texto_limpo}"
             })
         elif interacao.origem == models.InteracaoOrigem.SISTEMA:
             chat_msgs.append({
                 "role": "system",
-                "content": f"{prefixo_ts}[Diretriz Interna de Atendimento]: {interacao.texto}"
+                "content": f"[Diretriz Interna de Atendimento]: {texto_limpo}"
             })
         else:
-            chat_msgs.append({"role": "assistant", "content": f"{prefixo_ts}{interacao.texto}"})
+            chat_msgs.append({"role": "assistant", "content": texto_limpo})
     return chat_msgs
 
 
@@ -175,7 +186,7 @@ Objetivo Desta Etapa: {orientacao_estagio}
             max_tokens=300
         )
 
-        conteudo = (resposta.choices[0].message.content or "").strip()
+        conteudo = _limpar_prefixo_timestamp(resposta.choices[0].message.content or "")
         logger.info(f"[VENDEDOR] 🤖 Resposta gerada com sucesso ({len(conteudo)} chars)")
         return conteudo
 
@@ -268,7 +279,7 @@ INSTRUÇÕES CRÍTICAS DE CADÊNCIA:
             max_tokens=250
         )
 
-        conteudo = (resposta.choices[0].message.content or "").strip()
+        conteudo = _limpar_prefixo_timestamp(resposta.choices[0].message.content or "")
         logger.info(f"[FOLLOWUP VENDEDOR] ✉️ Mensagem gerada com sucesso ({len(conteudo)} chars)")
         return conteudo
 

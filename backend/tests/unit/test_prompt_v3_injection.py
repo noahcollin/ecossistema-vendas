@@ -18,6 +18,8 @@ from agents.sales_closer_agent import (
     _formatar_origem_lead,
     _montar_prompt_base_vendedor,
     _formatar_dados_ja_sabemos,
+    _limpar_prefixo_timestamp,
+    formatar_dialogo_para_chat,
 )
 from core.temporal import TemporalContextProvider
 
@@ -88,3 +90,31 @@ def test_temporal_prompt_v3_sexta_noite_pula_fim_de_semana():
     assert "domingo" not in livres
     assert livres.startswith("segunda ")
     assert "terça " in livres
+
+
+def test_limpar_prefixo_timestamp_e_dialogo_sem_timestamp():
+    assert (
+        _limpar_prefixo_timestamp("[16/11 13:56] Hamburgueria, então.|||E por onde chegam?")
+        == "Hamburgueria, então.|||E por onde chegam?"
+    )
+    interacoes = [
+        models.Interacao(
+            id=1,
+            lead_id=1,
+            origem=models.InteracaoOrigem.IA,
+            texto="[16/11 13:55] Qual é o ramo da sua empresa?",
+            criado_em=datetime(2026, 11, 16, 16, 55),
+        ),
+        models.Interacao(
+            id=2,
+            lead_id=1,
+            origem=models.InteracaoOrigem.CLIENTE,
+            texto="Eu tenho uma hamburgueria",
+            criado_em=datetime(2026, 11, 16, 16, 56),
+        ),
+    ]
+    msgs = formatar_dialogo_para_chat(interacoes)
+    assert msgs == [
+        {"role": "assistant", "content": "Qual é o ramo da sua empresa?"},
+        {"role": "user", "content": "Eu tenho uma hamburgueria"},
+    ]
